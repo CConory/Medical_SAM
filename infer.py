@@ -34,8 +34,8 @@ model_type = "vit_h"
 
 device = "cuda"
 
-df = pd.read_csv('segpc2021/test_train_data.csv')
-imgs = df[df.category!='train']['image_id']
+df = pd.read_csv('segpc2021/test_train_data.csv') # 分割好的数据集
+imgs = df[df.category!='train']['image_id'] # 选中验证集和测试集
 
 sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
 sam.to(device=device)
@@ -45,16 +45,17 @@ predictor = SamPredictor(sam)
 with torch.no_grad():
 
     for img_name in tqdm(imgs):
-        img_path = f'segpc2021/data/images/x/{img_name}'
+        img_path = f'segpc2021/data/images/x/{img_name}' # 输入图像RGB
         ipt= cv2.imread(img_path)
         ipt = cv2.cvtColor(ipt, cv2.COLOR_BGR2RGB)
 
         img_id = list(img_name.split('.'))[0]
-        masks = os.listdir(f'segpc2021/data/images/y/{img_id}/')
+        masks = os.listdir(f'segpc2021/data/images/y/{img_id}/') # 原分割结果 (Ground Truth)
 
         core_bboxes = []
         cell_bboxes = []
 
+        # 这里可能需要根据mask文件夹的结构自行修改
         for e_mask in masks:
             mask_path = f'segpc2021/data/images/y/{img_id}/{e_mask}'
 
@@ -64,7 +65,8 @@ with torch.no_grad():
             img_cell = np.copy(mask_img)
             img_cell[img_cell==40] = 20
     
-            contours1, _ = cv2.findContours(img_core, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # 画外接矩形
+            contours1, _ = cv2.findContours(img_core, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) 
             c1 = cv2.boundingRect(contours1[0])
 
             contours2, _ = cv2.findContours(img_cell, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -75,8 +77,10 @@ with torch.no_grad():
 
             del img_core, img_cell
     
-        plt.figure(figsize=(10, 10))
-        plt.imshow(ipt)
+        # plt.figure(figsize=(10, 10))
+        # plt.imshow(ipt)
+
+        # 一类一类地推理画mask
 
         ## core/nuclei
 
@@ -102,7 +106,7 @@ with torch.no_grad():
         for i in range(masks.shape[0]): #number of objects 
 
             pred = masks[i,0,:,:]
-            core_zeros[pred==True]=40
+            core_zeros[pred==True]=40 #这里因为GT图中的这类分割像素为40，所以把预测的这类像素也转化为40，进行对应。需要根据数据集进行自行修改
         
         core_save_path = f'segpc2021/bbox/mask/nuclei/{img_id}.png'
         cv2.imwrite(core_save_path, core_zeros.numpy())
@@ -133,6 +137,8 @@ with torch.no_grad():
         cell_save_path = f'segpc2021/bbox/mask/cell/{img_id}.png'
         cv2.imwrite(cell_save_path, cell_zeros.numpy())
 
+
+        # 把所有类的mask合成
         mix_zeros = core_zeros + cell_zeros
         mix_zeros[mix_zeros > 20] = 40
         mix_save_path = f'segpc2021/bbox/mask/mix/{img_id}.png'
@@ -143,6 +149,7 @@ with torch.no_grad():
 
         del input_core_boxes, transformed_boxes, core_zeros, input_cell_boxes, masks, cell_zeros, mix_zeros
         torch.cuda.empty_cache()
+        # plt.clf()
     
 
 
