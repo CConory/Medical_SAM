@@ -9,3 +9,6 @@ __pycache__/
 *.JPG
 *.pt
 *.pth
+
+# Except this file
+!.gitignore
