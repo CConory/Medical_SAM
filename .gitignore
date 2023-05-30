@@ -9,6 +9,6 @@ __pycache__/
 *.JPG
 *.pt
 *.pth
-
+wandb/
 # Except this file
 !.gitignore

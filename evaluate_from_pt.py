@@ -6,10 +6,11 @@ from tqdm import tqdm
 import cv2
 import numpy as np
 from typing import Any, Dict, List, Tuple
-
+from dataset import PanNuke_Dataset
+import wandb
 
 ROOT_PATH = './datasets/'
-DATANAME = "bowl_2018"
+DATANAME = "PanNuke"
 
 class Prompt_plut_decoder:
     def __init__(
@@ -109,9 +110,33 @@ def mean_iou_and_dice(y_true,y_pred): #[category_nums,1,w,h]
 
 if __name__ == '__main__':
 
+    dataset_name = "PanNuke"
+    prompt_type = "N"
+
+    wandb.init(project="Medical_SAM",config={
+        "dataset": dataset_name,
+        "prompt": prompt_type
+    })
+    wandb.run.name = wandb.run.id
+    wandb.run.save()
+
+    device = "cuda"
+
+    # Load dataset
+    valid_dataset = PanNuke_Dataset(f"./datasets/{dataset_name}/data_split.json","valid",device)
+    valid_loader = torch.utils.data.DataLoader(
+        valid_dataset,
+        batch_size=2,
+        num_workers=4,
+        shuffle=True,
+        pin_memory=False,
+        collate_fn = PanNuke_Dataset.collate_fn,
+        drop_last=False
+    )
+
     sam_checkpoint = "/userhome/cs2/kuangww/segment-anything/notebooks/models/sam_vit_h_4b8939.pth"
     model_type = "vit_h"
-    device = "cuda"
+    
     sam = sam_model_registry[model_type](checkpoint=sam_checkpoint) # 一个网络结构
     sam=sam.to(device=device)
     predictor = Prompt_plut_decoder(sam) 
@@ -123,41 +148,112 @@ if __name__ == '__main__':
 
     mIoU = []
     dice = []
+    valid_vis_results = []
+    test_vis_results = []
+    vis_count = 0
+    max_vis = 4
 
-    for file_name in tqdm(train_ids):
-        path = os.path.join(TRAIN_PATH,file_name)
-        data = torch.load(path + '/features/' + file_name + '.pt')
-        feature = data["fm"].to(device=device)
-        target = None
-        for mask_file in next(os.walk(path + '/masks/'))[2]:
-            mask_ = cv2.imread(path + '/masks/' + mask_file,-1)
-            if target is None:
-                target = mask_
-            else:
-                target = np.maximum(target, mask_)  
-
-        # 预留了batch 借口， 目前 一个batch 一张图片
-        batched_input = [
-            {
-                "feature":feature,
-                'original_size':data["origin_shape"][:2]
-            }
-        ]
-
+    for batched_input,masks,image_paths in tqdm(valid_loader):
+        for batch_id in range(len(batched_input)):
+            batched_input[batch_id]['feature'] = batched_input[batch_id]['feature'].to(device)
+        # batched_input = [
+        #     {
+        #         "feature":feature,
+        #         'original_size':data["origin_shape"][:2]
+        #     }
+        # ]
+        # masks.shape : (BS, category_num, 1, width, height)
         batched_output = predictor.predict(batched_input, multimask_output=False)
 
-        # calculate Metrices
-        mask_output = batched_output[0]['masks'].cpu().numpy()
-        _mIoU,_dice = mean_iou_and_dice(target[None][None].astype(bool),~mask_output) # bowl-2018 no points should do ~ operation
-        mIoU.append(_mIoU)
-        dice.append(_dice)
+        for batch_id in range(len(batched_output)):
+            mask_output = batched_output[batch_id]['masks'].cpu().numpy()
+            target = masks[batch_id]
+            _mIoU,_dice = mean_iou_and_dice(target,mask_output) # bowl-2018 no points should do ~ operation
+
+            mIoU.append(_mIoU)
+            dice.append(_dice)
+
+            # visualization
+            if vis_count< max_vis:
+                img = cv2.imread(image_paths[batch_id])
+                pred_fg = mask_output[0][0]!=0
+                target_fg = target[0][0]!=0
+                inter_fg = (mask_output[0][0]!=0) & (target[0][0]!=0)
+                target_fg = (~inter_fg) & target_fg
+                pred_fg = (~inter_fg) & pred_fg
+                img[pred_fg] = (img[pred_fg]*0.6 + tuple(tmp*0.4 for tmp in (255,0,0))).astype(np.uint8) # Blue for prediction
+                img[target_fg] = (img[target_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,0))).astype(np.uint8) # Green for target
+                img[inter_fg] = (img[inter_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,255))).astype(np.uint8) # Yellow for intersection
+                valid_vis_results.append(wandb.Image(img[...,::-1]))
+            vis_count += 1
+
+        # _mIoU,_dice = mean_iou_and_dice(target[None][None].astype(bool),~mask_output) # bowl-2018 no points should do ~ operation
+        # mIoU.append(_mIoU)
+        # dice.append(_dice)
 
         # Check 
         # mask_output = (mask_output*255).astype(int)
         # cv2.imwrite("./tmp.jpg",mask_output[0][0])
         # import pdb;pdb.set_trace()
+    
+    valid_mIoU = round(sum(mIoU)/len(mIoU),3)
+    valid_dice = round(sum(dice)/len(dice),3)
+    print("valid_mIoU: ",valid_mIoU)
+    print("valid_Dice: ",valid_dice)
+    
 
-    print("mIoU: ",round(sum(mIoU)/len(mIoU),3))
-    print("Dice: ",round(sum(dice)/len(dice),3))
-        
+    mIoU = []
+    dice = []
+    vis_count = 0
 
+    test_dataset = PanNuke_Dataset(f"./datasets/{dataset_name}/data_split.json","test",device)
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=2,
+        num_workers=4,
+        shuffle=True,
+        pin_memory=False,
+        collate_fn = PanNuke_Dataset.collate_fn,
+        drop_last=False
+    )
+
+    for batched_input,masks,image_paths in tqdm(test_loader):
+        for batch_id in range(len(batched_input)):
+            batched_input[batch_id]['feature'] = batched_input[batch_id]['feature'].to(device)
+        batched_output = predictor.predict(batched_input, multimask_output=False)
+        for batch_id in range(len(batched_output)):
+            mask_output = batched_output[batch_id]['masks'].cpu().numpy()
+            target = masks[batch_id]
+            _mIoU,_dice = mean_iou_and_dice(target,mask_output) # bowl-2018 no points should do ~ operation
+
+            mIoU.append(_mIoU)
+            dice.append(_dice)
+
+            # visualization
+            if vis_count< max_vis:
+                img = cv2.imread(image_paths[batch_id])
+                pred_fg = mask_output[0][0]!=0
+                target_fg = target[0][0]!=0
+                inter_fg = (mask_output[0][0]!=0) & (target[0][0]!=0)
+                target_fg = (~inter_fg) & target_fg
+                pred_fg = (~inter_fg) & pred_fg
+                img[pred_fg] = (img[pred_fg]*0.6 + tuple(tmp*0.4 for tmp in (255,0,0))).astype(np.uint8) # Blue for prediction
+                img[target_fg] = (img[target_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,0))).astype(np.uint8) # Green for target
+                img[inter_fg] = (img[inter_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,255))).astype(np.uint8) # Yellow for intersection
+                test_vis_results.append(wandb.Image(img[...,::-1]))
+            vis_count += 1
+
+    test_mIoU = round(sum(mIoU)/len(mIoU),3)
+    test_dice = round(sum(dice)/len(dice),3)
+    print("test_mIoU: ",test_mIoU)
+    print("test_Dice: ",test_dice)
+
+
+    wandb.log({
+        "valid_results": valid_vis_results,
+        "test_results": test_vis_results,
+        "valid/mIoU":valid_mIoU,
+        "valid/dice":valid_dice,
+        "test/mIoU":test_mIoU,
+        "test/dice":test_dice
+        })
