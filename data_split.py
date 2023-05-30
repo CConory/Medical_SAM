@@ -61,7 +61,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     #parser.add_argument('--dataset', type=str, default='data/', help='the path of dataset')
     parser.add_argument('--dataset', type=str, default='segpc2021/data/images/x', help='the path of images') # issue 16
-    parser.add_argument('--size', type=float, default=0.6, help='the size of your train set')
+    parser.add_argument('--size', type=float, default=0.8, help='the size of your train set')
     args = parser.parse_args()
     # os.makedirs('src/',exist_ok=True)
     pre_csv(args.dataset,args.size)
