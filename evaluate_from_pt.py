@@ -107,53 +107,23 @@ def mean_iou_and_dice(y_true,y_pred): #[category_nums,1,w,h]
     ean_dice_score = np.mean(dice_scores)
     return mean_iou_score,ean_dice_score
 
-
-if __name__ == '__main__':
-
-    dataset_name = "PanNuke"
-    prompt_type = "N"
-
-    wandb.init(project="Medical_SAM",config={
-        "dataset": dataset_name,
-        "prompt": prompt_type
-    })
-    wandb.run.name = wandb.run.id
-    wandb.run.save()
-
-    device = "cuda"
-
-    # Load dataset
-    valid_dataset = PanNuke_Dataset(f"./datasets/{dataset_name}/data_split.json","valid",device)
-    valid_loader = torch.utils.data.DataLoader(
-        valid_dataset,
-        batch_size=2,
-        num_workers=4,
-        shuffle=True,
-        pin_memory=False,
-        collate_fn = PanNuke_Dataset.collate_fn,
-        drop_last=False
-    )
-
-    sam_checkpoint = "/userhome/cs2/kuangww/segment-anything/notebooks/models/sam_vit_h_4b8939.pth"
-    model_type = "vit_h"
-    
-    sam = sam_model_registry[model_type](checkpoint=sam_checkpoint) # 一个网络结构
-    sam=sam.to(device=device)
-    predictor = Prompt_plut_decoder(sam) 
-
-    # Get Features & labels
-
-    TRAIN_PATH = os.path.join(ROOT_PATH,DATANAME)
-    train_ids = next(os.walk(TRAIN_PATH))[1]
+def evaluation(model,dataloader,device,max_vis=10):
+    '''
+        based on the features embedding;
+        inference include the prompt encoder and masks decoder.
+        return:
+            mIoU,Dice
+            visualization result
+                Blue for prediction
+                Green for target
+                Yellow for intersection
+    '''
 
     mIoU = []
     dice = []
-    valid_vis_results = []
-    test_vis_results = []
+    vis_results = []
     vis_count = 0
-    max_vis = 4
-
-    for batched_input,masks,image_paths in tqdm(valid_loader):
+    for batched_input,masks,image_paths in tqdm(dataloader):
         for batch_id in range(len(batched_input)):
             batched_input[batch_id]['feature'] = batched_input[batch_id]['feature'].to(device)
         # batched_input = [
@@ -184,7 +154,7 @@ if __name__ == '__main__':
                 img[pred_fg] = (img[pred_fg]*0.6 + tuple(tmp*0.4 for tmp in (255,0,0))).astype(np.uint8) # Blue for prediction
                 img[target_fg] = (img[target_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,0))).astype(np.uint8) # Green for target
                 img[inter_fg] = (img[inter_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,255))).astype(np.uint8) # Yellow for intersection
-                valid_vis_results.append(wandb.Image(img[...,::-1]))
+                vis_results.append(wandb.Image(img[...,::-1]))
             vis_count += 1
 
         # _mIoU,_dice = mean_iou_and_dice(target[None][None].astype(bool),~mask_output) # bowl-2018 no points should do ~ operation
@@ -196,52 +166,60 @@ if __name__ == '__main__':
         # cv2.imwrite("./tmp.jpg",mask_output[0][0])
         # import pdb;pdb.set_trace()
     
-    valid_mIoU = round(sum(mIoU)/len(mIoU),3)
-    valid_dice = round(sum(dice)/len(dice),3)
-    print("valid_mIoU: ",valid_mIoU)
-    print("valid_Dice: ",valid_dice)
-    
+    return  mIoU, dice, vis_results
 
-    mIoU = []
-    dice = []
-    vis_count = 0
+if __name__ == '__main__':
 
-    test_dataset = PanNuke_Dataset(f"./datasets/{dataset_name}/data_split.json","test",device)
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset,
+    dataset_name = "PanNuke"
+    prompt_type = "N"
+
+    wandb.init(project="Medical_SAM",config={
+        "dataset": dataset_name,
+        "prompt": prompt_type
+    })
+    wandb.run.name = wandb.run.id
+    wandb.run.save()
+
+    device = "cuda"
+
+    # Load dataset
+    valid_dataset = PanNuke_Dataset(f"./datasets/{dataset_name}/data_split.json","valid",device)
+    valid_loader = torch.utils.data.DataLoader(
+        valid_dataset,
         batch_size=2,
         num_workers=4,
-        shuffle=True,
+        shuffle=False,
         pin_memory=False,
         collate_fn = PanNuke_Dataset.collate_fn,
         drop_last=False
     )
 
-    for batched_input,masks,image_paths in tqdm(test_loader):
-        for batch_id in range(len(batched_input)):
-            batched_input[batch_id]['feature'] = batched_input[batch_id]['feature'].to(device)
-        batched_output = predictor.predict(batched_input, multimask_output=False)
-        for batch_id in range(len(batched_output)):
-            mask_output = batched_output[batch_id]['masks'].cpu().numpy()
-            target = masks[batch_id]
-            _mIoU,_dice = mean_iou_and_dice(target,mask_output) # bowl-2018 no points should do ~ operation
+    sam_checkpoint = "/userhome/cs2/kuangww/segment-anything/notebooks/models/sam_vit_h_4b8939.pth"
+    model_type = "vit_h"
+    
+    sam = sam_model_registry[model_type](checkpoint=sam_checkpoint) # 一个网络结构
+    sam=sam.to(device=device)
+    predictor = Prompt_plut_decoder(sam) 
 
-            mIoU.append(_mIoU)
-            dice.append(_dice)
+    mIoU,dice, valid_vis_results = evaluation(predictor,valid_loader,device)
+    
+    valid_mIoU = round(sum(mIoU)/len(mIoU),3)
+    valid_dice = round(sum(dice)/len(dice),3)
+    print("valid_mIoU: ",valid_mIoU)
+    print("valid_Dice: ",valid_dice)
+    
+    test_dataset = PanNuke_Dataset(f"./datasets/{dataset_name}/data_split.json","test",device)
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=2,
+        num_workers=4,
+        shuffle=False,
+        pin_memory=False,
+        collate_fn = PanNuke_Dataset.collate_fn,
+        drop_last=False
+    )
 
-            # visualization
-            if vis_count< max_vis:
-                img = cv2.imread(image_paths[batch_id])
-                pred_fg = mask_output[0][0]!=0
-                target_fg = target[0][0]!=0
-                inter_fg = (mask_output[0][0]!=0) & (target[0][0]!=0)
-                target_fg = (~inter_fg) & target_fg
-                pred_fg = (~inter_fg) & pred_fg
-                img[pred_fg] = (img[pred_fg]*0.6 + tuple(tmp*0.4 for tmp in (255,0,0))).astype(np.uint8) # Blue for prediction
-                img[target_fg] = (img[target_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,0))).astype(np.uint8) # Green for target
-                img[inter_fg] = (img[inter_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,255))).astype(np.uint8) # Yellow for intersection
-                test_vis_results.append(wandb.Image(img[...,::-1]))
-            vis_count += 1
+    mIoU,dice, test_vis_results = evaluation(predictor,test_loader,device)
 
     test_mIoU = round(sum(mIoU)/len(mIoU),3)
     test_dice = round(sum(dice)/len(dice),3)
