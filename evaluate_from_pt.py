@@ -1,12 +1,14 @@
 from segment_anything import sam_model_registry, SamPredictor
 from segment_anything.modeling import Sam
+from segment_anything.utils.transforms import ResizeLongestSide
 import torch
 import os
 from tqdm import tqdm
 import cv2
 import numpy as np
 from typing import Any, Dict, List, Tuple
-from dataset import PanNuke_Dataset
+from dataset import PanNuke_Dataset,PanNuke_one_point_prompt
+import matplotlib.pyplot as plt
 import wandb
 
 ROOT_PATH = './datasets/'
@@ -26,7 +28,9 @@ class Prompt_plut_decoder:
         """
         super().__init__()
         self.model = sam_model
-    
+        self.transform = ResizeLongestSide(self.model.image_encoder.img_size)
+        self.device = self.model.device
+
     @torch.no_grad()
     def predict(
         self,
@@ -37,14 +41,30 @@ class Prompt_plut_decoder:
 
         outputs = []
         for image_record in batched_input:
-            if "point_coords" in image_record:
-                points = (image_record["point_coords"], image_record["point_labels"])
-            else:
-                points = None
+
+            points = image_record.get("point_coords", None)
+            point_labels =  image_record.get("point_labels", None) 
+            box = image_record.get("boxes", None)
+            masks = image_record.get("mask_inputs", None)
+
+            coords_torch, labels_torch, box_torch, mask_input_torch = None, None, None, None
+
+            # Preprocessing for point-prompt:
+            if points is not None:
+                assert (
+                    point_labels is not None
+                ), "point_labels must be supplied if point_coords is supplied."
+
+                point_coords = self.transform.apply_coords(points, image_record["original_size"])
+                coords_torch = torch.as_tensor(point_coords, dtype=torch.float, device=self.device)
+                labels_torch = torch.as_tensor(point_labels, dtype=torch.int, device=self.device)
+                coords_torch, labels_torch = coords_torch[None, :, :], labels_torch[None, :]
+
+            points = (coords_torch,labels_torch) if coords_torch is not None else None
             sparse_embeddings, dense_embeddings = self.model.prompt_encoder(
                 points=points,
-                boxes=image_record.get("boxes", None),
-                masks=image_record.get("mask_inputs", None),
+                boxes=box,
+                masks=masks,
             )
             low_res_masks, iou_predictions = self.model.mask_decoder(
                 image_embeddings=image_record["feature"],
@@ -107,6 +127,28 @@ def mean_iou_and_dice(y_true,y_pred): #[category_nums,1,w,h]
     ean_dice_score = np.mean(dice_scores)
     return mean_iou_score,ean_dice_score
 
+
+def show_mask(mask, ax, color):
+    # if random_color:
+    #     color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
+    # else:
+    #     color = np.array([30/255, 144/255, 255/255, 0.6])
+    h, w = mask.shape[-2:]
+    mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
+    ax.imshow(mask_image)
+    
+def show_points(coords, labels, ax, marker_size=375):
+    pos_points = coords[labels==1]
+    neg_points = coords[labels==0]
+    ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
+    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)   
+    
+def show_box(box, ax):
+    x0, y0 = box[0], box[1]
+    w, h = box[2] - box[0], box[3] - box[1]
+    ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0,0,0,0), lw=2))  
+
+
 def evaluation(model,dataloader,device,max_vis=10):
     '''
         based on the features embedding;
@@ -146,15 +188,29 @@ def evaluation(model,dataloader,device,max_vis=10):
             # visualization
             if vis_count< max_vis:
                 img = cv2.imread(image_paths[batch_id])
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
                 pred_fg = mask_output[0][0]!=0
                 target_fg = target[0][0]!=0
                 inter_fg = (mask_output[0][0]!=0) & (target[0][0]!=0)
                 target_fg = (~inter_fg) & target_fg
                 pred_fg = (~inter_fg) & pred_fg
-                img[pred_fg] = (img[pred_fg]*0.6 + tuple(tmp*0.4 for tmp in (255,0,0))).astype(np.uint8) # Blue for prediction
-                img[target_fg] = (img[target_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,0))).astype(np.uint8) # Green for target
-                img[inter_fg] = (img[inter_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,255))).astype(np.uint8) # Yellow for intersection
-                vis_results.append(wandb.Image(img[...,::-1]))
+
+                plt.figure(figsize=(10,10))
+                plt.imshow(img)
+                show_mask(pred_fg, plt.gca(),np.array([0/255, 0/255, 255/255, 0.4]))
+                show_mask(target_fg, plt.gca(),np.array([0/255, 255/255, 0/255, 0.4]))
+                show_mask(inter_fg, plt.gca(),np.array([255/255, 255/255, 0/255, 0.4]))
+                if batched_input[batch_id].get("point_coords", None) is not None:
+                    show_points(batched_input[batch_id]['point_coords'], batched_input[batch_id]['point_labels'], plt.gca())
+                plt.axis('off')
+
+                # show_points(input_point, input_label, plt.gca())
+
+                # img[pred_fg] = (img[pred_fg]*0.6 + tuple(tmp*0.4 for tmp in (255,0,0))).astype(np.uint8) # Blue for prediction
+                # img[target_fg] = (img[target_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,0))).astype(np.uint8) # Green for target
+                # img[inter_fg] = (img[inter_fg]*0.6 + tuple(tmp*0.4 for tmp in (0,255,255))).astype(np.uint8) # Yellow for intersection
+                vis_results.append(wandb.Image(plt))
             vis_count += 1
 
         # _mIoU,_dice = mean_iou_and_dice(target[None][None].astype(bool),~mask_output) # bowl-2018 no points should do ~ operation
@@ -170,27 +226,36 @@ def evaluation(model,dataloader,device,max_vis=10):
 
 if __name__ == '__main__':
 
-    dataset_name = "PanNuke"
-    prompt_type = "N"
+    wandb_flag = True
 
-    wandb.init(project="Medical_SAM",config={
-        "dataset": dataset_name,
-        "prompt": prompt_type
-    })
-    wandb.run.name = wandb.run.id
-    wandb.run.save()
+    prompt_dict = {
+        "N" : PanNuke_Dataset,
+        "One_Point" : PanNuke_one_point_prompt,
+
+    }
+
+    dataset_name = "PanNuke"
+    prompt_type = "One_Point"
+
+    if wandb_flag:
+        wandb.init(project="Medical_SAM",config={
+            "dataset": dataset_name,
+            "prompt": prompt_type
+        })
+        wandb.run.name = wandb.run.id
+        wandb.run.save()
 
     device = "cuda"
 
     # Load dataset
-    valid_dataset = PanNuke_Dataset(f"./datasets/{dataset_name}/data_split.json","valid",device)
+    valid_dataset = prompt_dict[prompt_type](f"./datasets/{dataset_name}/data_split.json","valid",device)
     valid_loader = torch.utils.data.DataLoader(
         valid_dataset,
         batch_size=2,
         num_workers=4,
         shuffle=False,
         pin_memory=False,
-        collate_fn = PanNuke_Dataset.collate_fn,
+        collate_fn = prompt_dict[prompt_type].collate_fn,
         drop_last=False
     )
 
@@ -208,14 +273,14 @@ if __name__ == '__main__':
     print("valid_mIoU: ",valid_mIoU)
     print("valid_Dice: ",valid_dice)
     
-    test_dataset = PanNuke_Dataset(f"./datasets/{dataset_name}/data_split.json","test",device)
+    test_dataset = prompt_dict[prompt_type](f"./datasets/{dataset_name}/data_split.json","test",device)
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=2,
         num_workers=4,
         shuffle=False,
         pin_memory=False,
-        collate_fn = PanNuke_Dataset.collate_fn,
+        collate_fn = prompt_dict[prompt_type].collate_fn,
         drop_last=False
     )
 
@@ -226,12 +291,12 @@ if __name__ == '__main__':
     print("test_mIoU: ",test_mIoU)
     print("test_Dice: ",test_dice)
 
-
-    wandb.log({
-        "valid_results": valid_vis_results,
-        "test_results": test_vis_results,
-        "valid/mIoU":valid_mIoU,
-        "valid/dice":valid_dice,
-        "test/mIoU":test_mIoU,
-        "test/dice":test_dice
-        })
+    if wandb_flag:
+        wandb.log({
+            "valid_results": valid_vis_results,
+            "test_results": test_vis_results,
+            "valid/mIoU":valid_mIoU,
+            "valid/dice":valid_dice,
+            "test/mIoU":test_mIoU,
+            "test/dice":test_dice
+            })
