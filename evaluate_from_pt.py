@@ -7,7 +7,7 @@ from tqdm import tqdm
 import cv2
 import numpy as np
 from typing import Any, Dict, List, Tuple
-from dataset import PanNuke_Dataset,PanNuke_one_point_prompt
+from dataset import PanNuke_Dataset,PanNuke_one_point_prompt,PanNuke_two_point_prompt,PanNuke_five_point_prompt,PanNuke_Twenty_point_prompt,PanNuke_All_point_prompt
 import matplotlib.pyplot as plt
 import wandb
 
@@ -231,11 +231,14 @@ if __name__ == '__main__':
     prompt_dict = {
         "N" : PanNuke_Dataset,
         "One_Point" : PanNuke_one_point_prompt,
-
+        "Two_Point" : PanNuke_two_point_prompt,
+        "Five_Point" : PanNuke_five_point_prompt,
+        "Twenty_Point" : PanNuke_Twenty_point_prompt,
+        "All_Point": PanNuke_All_point_prompt
     }
 
     dataset_name = "PanNuke"
-    prompt_type = "One_Point"
+    prompt_type = "All_Point"
 
     if wandb_flag:
         wandb.init(project="Medical_SAM",config={
