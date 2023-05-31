@@ -7,7 +7,7 @@ from tqdm import tqdm
 import cv2
 import numpy as np
 from typing import Any, Dict, List, Tuple
-from dataset import PanNuke_Dataset,PanNuke_one_point_prompt,PanNuke_two_point_prompt,PanNuke_five_point_prompt,PanNuke_Twenty_point_prompt,PanNuke_All_point_prompt
+from dataset import PanNuke_Dataset,PanNuke_one_point_prompt,PanNuke_two_point_prompt,PanNuke_five_point_prompt,PanNuke_Twenty_point_prompt,PanNuke_All_point_prompt,PanNuke_All_boxes_prompt
 import matplotlib.pyplot as plt
 import wandb
 
@@ -45,6 +45,8 @@ class Prompt_plut_decoder:
             points = image_record.get("point_coords", None)
             point_labels =  image_record.get("point_labels", None) 
             box = image_record.get("boxes", None)
+            if box is not None and not len(box):
+                box = None
             masks = image_record.get("mask_inputs", None)
 
             coords_torch, labels_torch, box_torch, mask_input_torch = None, None, None, None
@@ -59,20 +61,60 @@ class Prompt_plut_decoder:
                 coords_torch = torch.as_tensor(point_coords, dtype=torch.float, device=self.device)
                 labels_torch = torch.as_tensor(point_labels, dtype=torch.int, device=self.device)
                 coords_torch, labels_torch = coords_torch[None, :, :], labels_torch[None, :]
+                if box is not None:
+                    bs = max(box.shape[0],1)
+                    if bs > 1:
+                        coords_torch = coords_torch.repeat(bs,1,1)
+                        labels_torch = labels_torch.repeat(bs,1)
 
-            points = (coords_torch,labels_torch) if coords_torch is not None else None
-            sparse_embeddings, dense_embeddings = self.model.prompt_encoder(
-                points=points,
-                boxes=box,
-                masks=masks,
-            )
-            low_res_masks, iou_predictions = self.model.mask_decoder(
-                image_embeddings=image_record["feature"],
-                image_pe=self.model.prompt_encoder.get_dense_pe(),
-                sparse_prompt_embeddings=sparse_embeddings,
-                dense_prompt_embeddings=dense_embeddings,
-                multimask_output=multimask_output,
-            )
+            if box is not None:
+                box = self.transform.apply_boxes(box, image_record["original_size"])
+                box_torch = torch.as_tensor(box, dtype=torch.float, device=self.device)
+                # box_torch = box_torch[None, :]
+                tmp_low_res_masks = None
+                tmp_iou_predictions = None
+                max_box_inference = 16
+                for box_id in range(0,len(box_torch),max_box_inference): #受显存限制
+                    if coords_torch is not None:
+                        tmp_coords_torch = coords_torch[box_id:box_id+max_box_inference]
+                        tmp_labels_torch = labels_torch[box_id:box_id+max_box_inference]
+                    points = (tmp_coords_torch,tmp_labels_torch) if coords_torch is not None else None
+                    tmp_box_torch = box_torch[box_id:box_id+max_box_inference]
+                    sparse_embeddings, dense_embeddings = self.model.prompt_encoder(
+                        points=points,
+                        boxes=tmp_box_torch,
+                        masks=masks,
+                    )
+
+                    low_res_masks, iou_predictions = self.model.mask_decoder(
+                        image_embeddings=image_record["feature"],
+                        image_pe=self.model.prompt_encoder.get_dense_pe(),
+                        sparse_prompt_embeddings=sparse_embeddings,
+                        dense_prompt_embeddings=dense_embeddings,
+                        multimask_output=multimask_output,
+                    )
+                    if tmp_low_res_masks is None:
+                        tmp_low_res_masks = low_res_masks
+                        tmp_iou_predictions = iou_predictions
+                    else:
+                        tmp_low_res_masks = torch.cat((tmp_low_res_masks,low_res_masks))
+                        tmp_iou_predictions = torch.cat((tmp_iou_predictions,iou_predictions))
+                low_res_masks = tmp_low_res_masks
+                iou_predictions = tmp_iou_predictions
+            else:
+                points = (coords_torch,labels_torch) if coords_torch is not None else None
+                sparse_embeddings, dense_embeddings = self.model.prompt_encoder(
+                    points=points,
+                    boxes=box_torch,
+                    masks=masks,
+                )
+                low_res_masks, iou_predictions = self.model.mask_decoder(
+                    image_embeddings=image_record["feature"],
+                    image_pe=self.model.prompt_encoder.get_dense_pe(),
+                    sparse_prompt_embeddings=sparse_embeddings,
+                    dense_prompt_embeddings=dense_embeddings,
+                    multimask_output=multimask_output,
+                )
             masks = self.model.postprocess_masks(
                 low_res_masks,
                 input_size=(self.model.image_encoder.img_size,self.model.image_encoder.img_size), # encode 前输入网络的大小
@@ -178,12 +220,21 @@ def evaluation(model,dataloader,device,max_vis=10):
         batched_output = predictor.predict(batched_input, multimask_output=False)
 
         for batch_id in range(len(batched_output)):
+            instance_bboxes = batched_input[batch_id].get("boxes", None)
             mask_output = batched_output[batch_id]['masks'].cpu().numpy()
+
+            if instance_bboxes is not None: 
+                if len(instance_bboxes): #instance 2 fg; 
+                    mask_output = np.sum(mask_output,axis=0)[None]
+                else: # no bbox means no fg
+                    mask_output = np.zeros_like(mask_output)
+
             target = masks[batch_id]
             _mIoU,_dice = mean_iou_and_dice(target,mask_output) # bowl-2018 no points should do ~ operation
 
             mIoU.append(_mIoU)
             dice.append(_dice)
+        
 
             # visualization
             if vis_count< max_vis:
@@ -203,7 +254,11 @@ def evaluation(model,dataloader,device,max_vis=10):
                 show_mask(inter_fg, plt.gca(),np.array([255/255, 255/255, 0/255, 0.4]))
                 if batched_input[batch_id].get("point_coords", None) is not None:
                     show_points(batched_input[batch_id]['point_coords'], batched_input[batch_id]['point_labels'], plt.gca())
+                for box in instance_bboxes:
+                    show_box(box, plt.gca())
                 plt.axis('off')
+
+                # plt.savefig("./tmp.jpg")
 
                 # show_points(input_point, input_label, plt.gca())
 
@@ -234,11 +289,12 @@ if __name__ == '__main__':
         "Two_Point" : PanNuke_two_point_prompt,
         "Five_Point" : PanNuke_five_point_prompt,
         "Twenty_Point" : PanNuke_Twenty_point_prompt,
-        "All_Point": PanNuke_All_point_prompt
+        "All_Point": PanNuke_All_point_prompt,
+        "All_boxes": PanNuke_All_boxes_prompt
     }
 
     dataset_name = "PanNuke"
-    prompt_type = "All_Point"
+    prompt_type = "All_boxes"
 
     if wandb_flag:
         wandb.init(project="Medical_SAM",config={
