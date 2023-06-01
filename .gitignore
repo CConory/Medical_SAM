@@ -1,4 +1,5 @@
-datasets/*
+datasets/*/*
+datasets/*.*
 weights/*
 __pycache__/
 *.jpg
@@ -12,3 +13,4 @@ __pycache__/
 wandb/
 # Except this file
 !.gitignore
+!*.py
