@@ -14,3 +14,4 @@ wandb/
 # Except this file
 !.gitignore
 !*.py
+!data_split.json
