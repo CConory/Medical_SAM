@@ -14,4 +14,6 @@ wandb/
 # Except this file
 !.gitignore
 !*.py
+!*.sh
+!*.md
 !data_split.json
