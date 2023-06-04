@@ -78,6 +78,8 @@ class One_point_Dataset(Dataset):
         if max_instance_nums > 1:
             instance_id = random.randint(1,max_instance_nums)
             instance_indices = np.where(instances_mask == instance_id)
+            if len(instance_indices[0])<10:
+                continue
             point_index = random.randint(0,len(instance_indices[0])-1)
 
             points = np.array([[instance_indices[1][point_index],instance_indices[0][point_index]]])
@@ -130,6 +132,8 @@ class Two_point_Dataset(Dataset):
         if max_instance_nums > 1:
             instance_id = random.randint(1,max_instance_nums)
             instance_indices = np.where(instances_mask == instance_id)
+            if len(instance_indices[0])<10:
+                continue
             point_index = random.randint(0,len(instance_indices[0])-1)
 
             points.append([instance_indices[1][point_index],instance_indices[0][point_index]])
@@ -189,6 +193,8 @@ class Five_point_Dataset(Dataset):
             instance_ids = random.sample(range(1,max_instance_nums+1), point_nums) # should generate include max_instance_nums, thus need max_instance_nums+1
             for instance_id in instance_ids:
                 instance_indices = np.where(instances_mask == instance_id)
+                if len(instance_indices[0])<10:
+                    continue
                 point_index = random.randint(0,len(instance_indices[0])-1)
 
                 points.append([instance_indices[1][point_index],instance_indices[0][point_index]])
@@ -250,6 +256,8 @@ class Twenty_point_Dataset(Dataset):
             instance_ids = random.sample(range(1,max_instance_nums+1), point_nums) # should generate include max_instance_nums, thus need max_instance_nums+1
             for instance_id in instance_ids:
                 instance_indices = np.where(instances_mask == instance_id)
+                if len(instance_indices[0])<10:
+                    continue
                 point_index = random.randint(0,len(instance_indices[0])-1)
 
                 points.append([instance_indices[1][point_index],instance_indices[0][point_index]])
@@ -308,6 +316,8 @@ class All_point_Dataset(Dataset):
         if max_instance_nums>1:
             for instance_id in range(1,max_instance_nums+1):
                 instance_indices = np.where(instances_mask == instance_id)
+                if len(instance_indices[0])<10:
+                    continue
                 point_index = random.randint(0,len(instance_indices[0])-1)
 
                 points.append([instance_indices[1][point_index],instance_indices[0][point_index]])
@@ -365,6 +375,8 @@ class All_boxes_Dataset(Dataset):
         for instance_id in range(1,max_instance_nums+1):
             instance =  (instances_mask==instance_id).astype(np.uint8)*255
             c1 = cv2.boundingRect(instance)
+            if c1[2]<=0 or c1[3]<=0:
+                continue
             instance_bboxes.append([c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3]])
 
         return feature,original_size,semantic_mask,instance_bboxes,image_path
