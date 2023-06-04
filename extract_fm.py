@@ -6,8 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch 
 
-ROOT_PATH = './datasets/'
-DATANAME = "PanNuku"
+import argparse
+
+
 
 
 # def show_mask(mask, ax, random_color=False):
@@ -20,6 +21,16 @@ DATANAME = "PanNuku"
 #     return mask_image
 
 if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='PanNuke', help='the path of the dataset')
+    parser.add_argument('--weight_path', type=str, default='/userhome/cs2/kuangww/segment-anything/notebooks/models/sam_vit_h_4b8939.pth', help='the path of the pre_train weight')
+    parser.add_argument('--model_type', type=str, default='vit_h', help='the type of the model')
+    args = parser.parse_args()
+
+    ROOT_PATH = './datasets/'
+    DATANAME = args.dataset
+
     TRAIN_PATH = os.path.join(ROOT_PATH,DATANAME)
     OUTPUT_DIR = os.path.join(TRAIN_PATH,"features")
 
@@ -29,8 +40,8 @@ if __name__ == '__main__':
     image_dir = os.path.join(TRAIN_PATH,"images")
     image_names = os.listdir(image_dir)
 
-    sam_checkpoint = "/userhome/cs2/kuangww/segment-anything/notebooks/models/sam_vit_h_4b8939.pth"
-    model_type = "vit_h"
+    sam_checkpoint = args.weight_path
+    model_type = args.model_type
 
     device = "cuda"
 
@@ -40,6 +51,7 @@ if __name__ == '__main__':
     predictor = SamPredictor(sam) 
 
     for file_name in tqdm(image_names):
+        suffix = os.path.splitext(file_name)[1]
         path = os.path.join(TRAIN_PATH,file_name)
         img = cv2.imread(os.path.join(image_dir,file_name))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) #BGR2RGB
@@ -56,7 +68,7 @@ if __name__ == '__main__':
 
         # masks, scores, logits = predictor.predict(multimask_output=False)
         # import pdb;pdb.set_trace()
-        torch.save(data,os.path.join(OUTPUT_DIR,file_name.replace(".png",".pt")))
+        torch.save(data,os.path.join(OUTPUT_DIR,file_name.replace(suffix,".pt")))
 
         predictor.reset_image()
 
