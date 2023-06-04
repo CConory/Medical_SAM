@@ -7,12 +7,11 @@ from tqdm import tqdm
 import cv2
 import numpy as np
 from typing import Any, Dict, List, Tuple
-from dataset import PanNuke_Dataset,PanNuke_one_point_prompt,PanNuke_two_point_prompt,PanNuke_five_point_prompt,PanNuke_Twenty_point_prompt,PanNuke_All_point_prompt,PanNuke_All_boxes_prompt
+from dataset import Dataset,One_point_Dataset,Two_point_Dataset,Five_point_Dataset,Twenty_point_Dataset,All_point_Dataset,All_boxes_Dataset
 import matplotlib.pyplot as plt
 import wandb
+import argparse
 
-ROOT_PATH = './datasets/'
-DATANAME = "PanNuke"
 
 class Prompt_plut_decoder:
     def __init__(
@@ -254,8 +253,9 @@ def evaluation(model,dataloader,device,max_vis=10):
                 show_mask(inter_fg, plt.gca(),np.array([255/255, 255/255, 0/255, 0.4]))
                 if batched_input[batch_id].get("point_coords", None) is not None:
                     show_points(batched_input[batch_id]['point_coords'], batched_input[batch_id]['point_labels'], plt.gca())
-                for box in instance_bboxes:
-                    show_box(box, plt.gca())
+                if instance_bboxes is not None:
+                    for box in instance_bboxes:
+                        show_box(box, plt.gca())
                 plt.axis('off')
 
                 # plt.savefig("./tmp.jpg")
@@ -281,20 +281,30 @@ def evaluation(model,dataloader,device,max_vis=10):
 
 if __name__ == '__main__':
 
-    wandb_flag = True
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='MoNuSeg', help='the path of the dataset')
+    parser.add_argument('--weight_path', type=str, default='/userhome/cs2/kuangww/segment-anything/notebooks/models/sam_vit_h_4b8939.pth', help='the path of the pre_train weight')
+    parser.add_argument('--model_type', type=str, default='vit_h', help='the type of the model')
+    parser.add_argument('--prompt_type', type=str, default='N', help='the type of the prompt')
+    parser.add_argument('--wandb_log', action='store_true', help='save the result to wandb or not')
+    args = parser.parse_args()
+
+    wandb_flag = args.wandb_log
 
     prompt_dict = {
-        "N" : PanNuke_Dataset,
-        "One_Point" : PanNuke_one_point_prompt,
-        "Two_Point" : PanNuke_two_point_prompt,
-        "Five_Point" : PanNuke_five_point_prompt,
-        "Twenty_Point" : PanNuke_Twenty_point_prompt,
-        "All_Point": PanNuke_All_point_prompt,
-        "All_boxes": PanNuke_All_boxes_prompt
+        "N" : Dataset,
+        "One_Point" : One_point_Dataset,
+        "Two_Point" : Two_point_Dataset,
+        "Five_Point" : Five_point_Dataset,
+        "Twenty_Point" : Twenty_point_Dataset,
+        "All_Point": All_point_Dataset,
+        "All_boxes": All_boxes_Dataset
     }
 
-    dataset_name = "PanNuke"
-    prompt_type = "All_boxes"
+    dataset_root_dir = "./datasets"
+    dataset_name = args.dataset
+    dataset_dir = os.path.join(dataset_root_dir,dataset_name)
+    prompt_type = args.prompt_type
 
     if wandb_flag:
         wandb.init(project="Medical_SAM",config={
@@ -307,7 +317,7 @@ if __name__ == '__main__':
     device = "cuda"
 
     # Load dataset
-    valid_dataset = prompt_dict[prompt_type](f"./datasets/{dataset_name}/data_split.json","valid",device)
+    valid_dataset = prompt_dict[prompt_type](os.path.join(dataset_dir,"data_split.json"),"valid",device)
     valid_loader = torch.utils.data.DataLoader(
         valid_dataset,
         batch_size=2,
@@ -318,8 +328,8 @@ if __name__ == '__main__':
         drop_last=False
     )
 
-    sam_checkpoint = "/userhome/cs2/kuangww/segment-anything/notebooks/models/sam_vit_h_4b8939.pth"
-    model_type = "vit_h"
+    sam_checkpoint = args.weight_path
+    model_type = args.model_type
     
     sam = sam_model_registry[model_type](checkpoint=sam_checkpoint) # 一个网络结构
     sam=sam.to(device=device)
@@ -332,7 +342,7 @@ if __name__ == '__main__':
     print("valid_mIoU: ",valid_mIoU)
     print("valid_Dice: ",valid_dice)
     
-    test_dataset = prompt_dict[prompt_type](f"./datasets/{dataset_name}/data_split.json","test",device)
+    test_dataset = prompt_dict[prompt_type](os.path.join(dataset_dir,"data_split.json"),"test",device)
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=2,

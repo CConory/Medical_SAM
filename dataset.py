@@ -9,12 +9,19 @@ import random
 import cv2
 from segment_anything.modeling import Sam
 from segment_anything.utils.transforms import ResizeLongestSide
+import os
 
+def get_path(dataset_dir,file_name,suffix):
+    image_path = os.path.join(dataset_dir,"images",file_name)
+    feature_path = os.path.join(dataset_dir,"features",file_name.replace(suffix,".pt"))
+    mask_path = os.path.join(dataset_dir,"masks",file_name.replace(suffix,".npy"))
+    return image_path,feature_path,mask_path
 
-class PanNuke_Dataset(data.Dataset):
+class Dataset(data.Dataset):
     def __init__(self, json_path,split,device):
         with open(json_path, 'r') as f:
             ds_dict = json.load(f)
+        self.dataset_dir = os.path.dirname(json_path)
         self.file_names = ds_dict[split]
         self.nF = len(self.file_names)
         self.device = device
@@ -22,11 +29,13 @@ class PanNuke_Dataset(data.Dataset):
         return self.nF
     def __getitem__(self, index):
         file_name = self.file_names[index]
-        image_path = "./datasets/PanNuke/images/" + file_name + ".png"
-        data = torch.load("./datasets/PanNuke/features/" + file_name + '.pt')
+        
+        suffix = os.path.splitext(file_name)[1]
+        image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
+        data = torch.load(feature_path)
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
-        mask = np.load(f'./datasets/PanNuke/masks/{file_name}.npy',allow_pickle=True)
+        mask = np.load(mask_path,allow_pickle=True)
         semantic_mask = mask[...,1]!=0
         return feature,original_size,semantic_mask,image_path
     @staticmethod
@@ -51,14 +60,16 @@ class PanNuke_Dataset(data.Dataset):
         return batched_input, np.concatenate(masks,axis=0),image_path
 
 
-class PanNuke_one_point_prompt(PanNuke_Dataset):
+class One_point_Dataset(Dataset):
     def __getitem__(self, index):
         file_name = self.file_names[index]
-        image_path = "./datasets/PanNuke/images/" + file_name + ".png"
-        data = torch.load("./datasets/PanNuke/features/" + file_name + '.pt')
+        suffix = os.path.splitext(file_name)[1]
+        image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
+
+        data = torch.load(feature_path)
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
-        mask = np.load(f'./datasets/PanNuke/masks/{file_name}.npy',allow_pickle=True)
+        mask = np.load(mask_path,allow_pickle=True)
         semantic_mask = mask[...,1]!=0
 
 
@@ -98,14 +109,17 @@ class PanNuke_one_point_prompt(PanNuke_Dataset):
         return batched_input, np.concatenate(masks,axis=0),image_path
 
 
-class PanNuke_two_point_prompt(PanNuke_Dataset):
+class Two_point_Dataset(Dataset):
     def __getitem__(self, index):
         file_name = self.file_names[index]
-        image_path = "./datasets/PanNuke/images/" + file_name + ".png"
-        data = torch.load("./datasets/PanNuke/features/" + file_name + '.pt')
+
+        suffix = os.path.splitext(file_name)[1]
+        image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
+
+        data = torch.load(feature_path)
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
-        mask = np.load(f'./datasets/PanNuke/masks/{file_name}.npy',allow_pickle=True)
+        mask = np.load(mask_path,allow_pickle=True)
         semantic_mask = mask[...,1]!=0
 
 
@@ -152,14 +166,17 @@ class PanNuke_two_point_prompt(PanNuke_Dataset):
         return batched_input, np.concatenate(masks,axis=0),image_path
 
 
-class PanNuke_five_point_prompt(PanNuke_Dataset):
+class Five_point_Dataset(Dataset):
     def __getitem__(self, index):
         file_name = self.file_names[index]
-        image_path = "./datasets/PanNuke/images/" + file_name + ".png"
-        data = torch.load("./datasets/PanNuke/features/" + file_name + '.pt')
+
+        suffix = os.path.splitext(file_name)[1]
+        image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
+
+        data = torch.load(feature_path)
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
-        mask = np.load(f'./datasets/PanNuke/masks/{file_name}.npy',allow_pickle=True)
+        mask = np.load(mask_path,allow_pickle=True)
         semantic_mask = mask[...,1]!=0
 
 
@@ -209,14 +226,18 @@ class PanNuke_five_point_prompt(PanNuke_Dataset):
         return batched_input, np.concatenate(masks,axis=0),image_path
 
 
-class PanNuke_Twenty_point_prompt(PanNuke_Dataset):
+class Twenty_point_Dataset(Dataset):
     def __getitem__(self, index):
         file_name = self.file_names[index]
-        image_path = "./datasets/PanNuke/images/" + file_name + ".png"
-        data = torch.load("./datasets/PanNuke/features/" + file_name + '.pt')
+
+        suffix = os.path.splitext(file_name)[1]
+        image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
+
+
+        data = torch.load(feature_path)
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
-        mask = np.load(f'./datasets/PanNuke/masks/{file_name}.npy',allow_pickle=True)
+        mask = np.load(mask_path,allow_pickle=True)
         semantic_mask = mask[...,1]!=0
 
 
@@ -266,14 +287,17 @@ class PanNuke_Twenty_point_prompt(PanNuke_Dataset):
         return batched_input, np.concatenate(masks,axis=0),image_path
 
 
-class PanNuke_All_point_prompt(PanNuke_Dataset):
+class All_point_Dataset(Dataset):
     def __getitem__(self, index):
         file_name = self.file_names[index]
-        image_path = "./datasets/PanNuke/images/" + file_name + ".png"
-        data = torch.load("./datasets/PanNuke/features/" + file_name + '.pt')
+
+        suffix = os.path.splitext(file_name)[1]
+        image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
+
+        data = torch.load(feature_path)
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
-        mask = np.load(f'./datasets/PanNuke/masks/{file_name}.npy',allow_pickle=True)
+        mask = np.load(mask_path,allow_pickle=True)
         semantic_mask = mask[...,1]!=0
 
 
@@ -321,14 +345,17 @@ class PanNuke_All_point_prompt(PanNuke_Dataset):
         return batched_input, np.concatenate(masks,axis=0),image_path
 
 
-class PanNuke_All_boxes_prompt(PanNuke_Dataset):
+class All_boxes_Dataset(Dataset):
     def __getitem__(self, index):
         file_name = self.file_names[index]
-        image_path = "./datasets/PanNuke/images/" + file_name + ".png"
-        data = torch.load("./datasets/PanNuke/features/" + file_name + '.pt')
+
+        suffix = os.path.splitext(file_name)[1]
+        image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
+
+        data = torch.load(feature_path)
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
-        mask = np.load(f'./datasets/PanNuke/masks/{file_name}.npy',allow_pickle=True)
+        mask = np.load(mask_path,allow_pickle=True)
         semantic_mask = mask[...,1]!=0
 
 
