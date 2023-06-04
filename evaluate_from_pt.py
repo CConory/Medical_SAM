@@ -70,9 +70,10 @@ class Prompt_plut_decoder:
                 box = self.transform.apply_boxes(box, image_record["original_size"])
                 box_torch = torch.as_tensor(box, dtype=torch.float, device=self.device)
                 # box_torch = box_torch[None, :]
-                tmp_low_res_masks = None
+                # tmp_low_res_masks = None
                 tmp_iou_predictions = None
                 max_box_inference = 16
+                final_masks = torch.zeros((1,*image_record["original_size"]),device=self.device)
                 for box_id in range(0,len(box_torch),max_box_inference): #受显存限制
                     if coords_torch is not None:
                         tmp_coords_torch = coords_torch[box_id:box_id+max_box_inference]
@@ -92,14 +93,25 @@ class Prompt_plut_decoder:
                         dense_prompt_embeddings=dense_embeddings,
                         multimask_output=multimask_output,
                     )
-                    if tmp_low_res_masks is None:
-                        tmp_low_res_masks = low_res_masks
+                    masks = self.model.postprocess_masks(
+                        low_res_masks,
+                        input_size=(self.model.image_encoder.img_size,self.model.image_encoder.img_size), # encode 前输入网络的大小
+                        original_size=image_record["original_size"],
+                    )
+                    masks = masks > self.model.mask_threshold
+                    for mask_id in range(len(masks)):
+                        final_masks[masks[mask_id]] = mask_id+box_id+1
+                    
+                    if tmp_iou_predictions is None:
                         tmp_iou_predictions = iou_predictions
                     else:
-                        tmp_low_res_masks = torch.cat((tmp_low_res_masks,low_res_masks))
                         tmp_iou_predictions = torch.cat((tmp_iou_predictions,iou_predictions))
-                low_res_masks = tmp_low_res_masks
+                    masks = None
+
                 iou_predictions = tmp_iou_predictions
+                masks = final_masks[None]
+                low_res_masks = None
+
             else:
                 points = (coords_torch,labels_torch) if coords_torch is not None else None
                 sparse_embeddings, dense_embeddings = self.model.prompt_encoder(
@@ -114,12 +126,14 @@ class Prompt_plut_decoder:
                     dense_prompt_embeddings=dense_embeddings,
                     multimask_output=multimask_output,
                 )
-            masks = self.model.postprocess_masks(
-                low_res_masks,
-                input_size=(self.model.image_encoder.img_size,self.model.image_encoder.img_size), # encode 前输入网络的大小
-                original_size=image_record["original_size"],
-            )
-            masks = masks > self.model.mask_threshold
+                masks = self.model.postprocess_masks(
+                    low_res_masks,
+                    input_size=(self.model.image_encoder.img_size,self.model.image_encoder.img_size), # encode 前输入网络的大小
+                    original_size=image_record["original_size"],
+                )
+                masks = masks > self.model.mask_threshold
+
+            
             outputs.append(
                 {
                     "masks": masks,
@@ -178,7 +192,7 @@ def show_mask(mask, ax, color):
     mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
     ax.imshow(mask_image)
     
-def show_points(coords, labels, ax, marker_size=375):
+def show_points(coords, labels, ax, marker_size=50):
     pos_points = coords[labels==1]
     neg_points = coords[labels==0]
     ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
@@ -220,13 +234,13 @@ def evaluation(model,dataloader,device,max_vis=10):
 
         for batch_id in range(len(batched_output)):
             instance_bboxes = batched_input[batch_id].get("boxes", None)
-            mask_output = batched_output[batch_id]['masks'].cpu().numpy()
+            mask_output = batched_output[batch_id]['masks']
+            mask_output = mask_output!=0
+            mask_output = mask_output.cpu().numpy()
 
-            if instance_bboxes is not None: 
-                if len(instance_bboxes): #instance 2 fg; 
-                    mask_output = np.sum(mask_output,axis=0)[None]
-                else: # no bbox means no fg
-                    mask_output = np.zeros_like(mask_output)
+            if instance_bboxes is not None and not len(instance_bboxes): 
+                mask_output = np.zeros_like(mask_output)
+
 
             target = masks[batch_id]
             _mIoU,_dice = mean_iou_and_dice(target,mask_output) # bowl-2018 no points should do ~ operation

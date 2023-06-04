@@ -81,12 +81,10 @@ class One_point_Dataset(Dataset):
         if max_instance_nums > 1:
             instance_id = random.randint(1,max_instance_nums)
             instance_indices = np.where(instances_mask == instance_id)
-            if len(instance_indices[0])<10:
-                break
-            point_index = random.randint(0,len(instance_indices[0])-1)
-
-            points = np.array([[instance_indices[1][point_index],instance_indices[0][point_index]]])
-            point_label = np.array([1]*len(points)) #1 is foreground , 0 is background
+            if len(instance_indices[0])>10:
+                point_index = random.randint(0,len(instance_indices[0])-1)
+                points = np.array([[instance_indices[1][point_index],instance_indices[0][point_index]]])
+                point_label = np.array([1]*len(points)) #1 is foreground , 0 is background
 
 
 
@@ -131,14 +129,12 @@ class Two_point_Dataset(Dataset):
         if max_instance_nums > 1:
             instance_id = random.randint(1,max_instance_nums)
             instance_indices = np.where(instances_mask == instance_id)
-            if len(instance_indices[0])<10:
-                continue
-            point_index = random.randint(0,len(instance_indices[0])-1)
-
-            points.append([instance_indices[1][point_index],instance_indices[0][point_index]])
-            point_label.append(1) #1 is foreground , 0 is background
-            # points = np.array([[instance_indices[1][point_index],instance_indices[0][point_index]]])
-            # point_label = np.array([1]) 
+            if len(instance_indices[0])>10:
+                point_index = random.randint(0,len(instance_indices[0])-1)
+                points.append([instance_indices[1][point_index],instance_indices[0][point_index]])
+                point_label.append(1) #1 is foreground , 0 is background
+                # points = np.array([[instance_indices[1][point_index],instance_indices[0][point_index]]])
+                # point_label = np.array([1]) 
         
         bg_indices = np.where(instances_mask == 0)
         point_index = random.randint(0,len(bg_indices[0])-1)
@@ -360,7 +356,6 @@ class All_boxes_Dataset(Dataset):
 
         suffix = os.path.splitext(file_name)[1]
         image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
-
         data = torch.load(feature_path)
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
