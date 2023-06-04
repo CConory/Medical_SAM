@@ -75,20 +75,19 @@ class One_point_Dataset(Dataset):
 
         instances_mask = mask[...,0]
         max_instance_nums = np.max(instances_mask)
+        points = np.array([])
+        point_label = np.array([])
+
         if max_instance_nums > 1:
             instance_id = random.randint(1,max_instance_nums)
             instance_indices = np.where(instances_mask == instance_id)
             if len(instance_indices[0])<10:
-                continue
+                break
             point_index = random.randint(0,len(instance_indices[0])-1)
 
             points = np.array([[instance_indices[1][point_index],instance_indices[0][point_index]]])
-
-
             point_label = np.array([1]*len(points)) #1 is foreground , 0 is background
-        else:
-            points = np.array([])
-            point_label = np.array([])
+
 
 
         return feature,original_size,semantic_mask,points,point_label,image_path
