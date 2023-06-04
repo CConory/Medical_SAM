@@ -1,5 +1,6 @@
 # Medical_SAM
 ## Step1: Conver data format
+Using the script in ./datasets/DATASET_NAME/XXX.py
 ## Step2: Extract the image embedding
 ```
 # e.g.
