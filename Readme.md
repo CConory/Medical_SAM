@@ -1,5 +1,6 @@
-# Step1: Conver data format
-# Step2: Extract the image embedding
+# Medical_SAM
+## Step1: Conver data format
+## Step2: Extract the image embedding
 ```
 # e.g.
 python extract_fm \
