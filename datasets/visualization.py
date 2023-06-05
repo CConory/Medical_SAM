@@ -18,10 +18,12 @@ category_color = {
 
 }
 
-img_id = "TCGA-38-6178-01Z-00-DX1"
+dataset_name="bowl_2018"
+img_id = "f4b7c24baf69b8752c49d0eb5db4b7b5e1524945d48e54925bff401d5658045d"
 
-img = cv2.imread(f"./images/{img_id}.tif")
-masks = np.load(f'./masks/{img_id}.npy',allow_pickle=True)
+img = cv2.imread(f"./{dataset_name}/images/{img_id}.png")
+masks = np.load(f'./{dataset_name}/masks/{img_id}.npy',allow_pickle=True)
+masks = masks.astype(int)
 
 instances_mask = masks[...,0] # instance_id
 semantic_mask = masks[...,1] # bg:0 , fg:1~5
@@ -29,7 +31,7 @@ semantic_mask = masks[...,1] # bg:0 , fg:1~5
 
 # instance_example
 instance_output_img = img.copy()
-for i in range(1,np.max(instances_mask)):
+for i in range(1,np.max(instances_mask)+1):
     instance_id = instances_mask==i
     instance_output_img[instance_id] = (instance_output_img[instance_id]*0.7 + tuple(tmp*0.3 for tmp in random_color())).astype(np.uint8)
 cv2.imwrite("./instance_example.jpg",instance_output_img)
