@@ -282,10 +282,6 @@ def evaluation(model,dataloader,device,max_vis=10):
                     for box in instance_bboxes:
                         show_box(box, plt.gca())
                 plt.axis('off')
-
-                plt.savefig("./tmp.jpg")
-                import pdb;pdb.set_trace()
-
                 # show_points(input_point, input_label, plt.gca())
 
                 # img[pred_fg] = (img[pred_fg]*0.6 + tuple(tmp*0.4 for tmp in (255,0,0))).astype(np.uint8) # Blue for prediction
