@@ -11,8 +11,17 @@ from dataset import Dataset,One_point_Dataset,Two_point_Dataset,Five_point_Datas
 import matplotlib.pyplot as plt
 import wandb
 import argparse
+from torch.nn import functional as F
 
 
+def calculate_before_padding_size(after_padding_size,original_size):
+    """
+        original_size 长边等比缩放到 after_padding_size 的长度；
+        计算等比缩放后的,padding前的 size
+    """
+    rr = min(after_padding_size[0]/original_size[0],after_padding_size[1]/original_size[1])
+    return_size = (int(original_size[0]*rr),int(original_size[1]*rr))
+    return return_size
 class Prompt_plut_decoder:
     def __init__(
         self,
@@ -49,6 +58,8 @@ class Prompt_plut_decoder:
             masks = image_record.get("mask_inputs", None)
 
             coords_torch, labels_torch, box_torch, mask_input_torch = None, None, None, None
+
+            input_size = calculate_before_padding_size((self.model.image_encoder.img_size,self.model.image_encoder.img_size),image_record["original_size"])
 
             # Preprocessing for point-prompt:
             if points is not None:
@@ -95,7 +106,7 @@ class Prompt_plut_decoder:
                     )
                     masks = self.model.postprocess_masks(
                         low_res_masks,
-                        input_size=(self.model.image_encoder.img_size,self.model.image_encoder.img_size), # encode 前输入网络的大小
+                        input_size=input_size, # 输入网络前未padding的大小
                         original_size=image_record["original_size"],
                     )
                     masks = masks > self.model.mask_threshold
@@ -128,7 +139,7 @@ class Prompt_plut_decoder:
                 )
                 masks = self.model.postprocess_masks(
                     low_res_masks,
-                    input_size=(self.model.image_encoder.img_size,self.model.image_encoder.img_size), # encode 前输入网络的大小
+                    input_size=input_size, # 输入网络前未padding的大小
                     original_size=image_record["original_size"],
                 )
                 masks = masks > self.model.mask_threshold
@@ -272,7 +283,8 @@ def evaluation(model,dataloader,device,max_vis=10):
                         show_box(box, plt.gca())
                 plt.axis('off')
 
-                # plt.savefig("./tmp.jpg")
+                plt.savefig("./tmp.jpg")
+                import pdb;pdb.set_trace()
 
                 # show_points(input_point, input_label, plt.gca())
 
