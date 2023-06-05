@@ -36,6 +36,7 @@ class Dataset(data.Dataset):
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
         mask = np.load(mask_path,allow_pickle=True)
+        mask = mask.astype(np.int)
         semantic_mask = mask[...,1]!=0
         return feature,original_size,semantic_mask,image_path
     @staticmethod
@@ -57,7 +58,7 @@ class Dataset(data.Dataset):
                 }
             )
             masks.append(mask[i][None][None][None])
-        return batched_input, np.concatenate(masks,axis=0),image_path
+        return batched_input, masks,image_path
 
 
 class One_point_Dataset(Dataset):
@@ -70,6 +71,8 @@ class One_point_Dataset(Dataset):
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
         mask = np.load(mask_path,allow_pickle=True)
+        mask = mask.astype(np.int)
+
         semantic_mask = mask[...,1]!=0
 
 
@@ -105,7 +108,7 @@ class One_point_Dataset(Dataset):
                 }
             )
             masks.append(mask[i][None][None][None])
-        return batched_input, np.concatenate(masks,axis=0),image_path
+        return batched_input, masks,image_path
 
 
 class Two_point_Dataset(Dataset):
@@ -119,6 +122,7 @@ class Two_point_Dataset(Dataset):
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
         mask = np.load(mask_path,allow_pickle=True)
+        mask = mask.astype(np.int)
         semantic_mask = mask[...,1]!=0
 
 
@@ -162,7 +166,7 @@ class Two_point_Dataset(Dataset):
                 }
             )
             masks.append(mask[i][None][None][None])
-        return batched_input, np.concatenate(masks,axis=0),image_path
+        return batched_input, masks,image_path
 
 
 class Five_point_Dataset(Dataset):
@@ -176,6 +180,8 @@ class Five_point_Dataset(Dataset):
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
         mask = np.load(mask_path,allow_pickle=True)
+        mask = mask.astype(np.int)
+
         semantic_mask = mask[...,1]!=0
 
 
@@ -224,7 +230,7 @@ class Five_point_Dataset(Dataset):
                 }
             )
             masks.append(mask[i][None][None][None])
-        return batched_input, np.concatenate(masks,axis=0),image_path
+        return batched_input, masks,image_path
 
 
 class Twenty_point_Dataset(Dataset):
@@ -239,6 +245,7 @@ class Twenty_point_Dataset(Dataset):
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
         mask = np.load(mask_path,allow_pickle=True)
+        mask = mask.astype(np.int)
         semantic_mask = mask[...,1]!=0
 
 
@@ -287,7 +294,7 @@ class Twenty_point_Dataset(Dataset):
                 }
             )
             masks.append(mask[i][None][None][None])
-        return batched_input, np.concatenate(masks,axis=0),image_path
+        return batched_input, masks,image_path
 
 
 class All_point_Dataset(Dataset):
@@ -301,6 +308,7 @@ class All_point_Dataset(Dataset):
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
         mask = np.load(mask_path,allow_pickle=True)
+        mask = mask.astype(np.int)
         semantic_mask = mask[...,1]!=0
 
 
@@ -347,7 +355,7 @@ class All_point_Dataset(Dataset):
                 }
             )
             masks.append(mask[i][None][None][None])
-        return batched_input, np.concatenate(masks,axis=0),image_path
+        return batched_input, masks,image_path
 
 
 class All_boxes_Dataset(Dataset):
@@ -360,6 +368,7 @@ class All_boxes_Dataset(Dataset):
         feature = data["fm"] #.to(self.device)
         original_size = data["origin_shape"][:2]
         mask = np.load(mask_path,allow_pickle=True)
+        mask = mask.astype(np.int)
         semantic_mask = mask[...,1]!=0
 
 
@@ -388,4 +397,4 @@ class All_boxes_Dataset(Dataset):
                 }
             )
             masks.append(mask[i][None][None][None])
-        return batched_input, np.concatenate(masks,axis=0),image_path
+        return batched_input, masks,image_path
