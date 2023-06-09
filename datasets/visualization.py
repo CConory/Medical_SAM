@@ -18,11 +18,11 @@ category_color = {
 
 }
 
-dataset_name="bowl_2018"
-img_id = "f4b7c24baf69b8752c49d0eb5db4b7b5e1524945d48e54925bff401d5658045d"
+dataset_name="SegPC-2021"
+img_id = "102.bmp"
 
-img = cv2.imread(f"./{dataset_name}/images/{img_id}.png")
-masks = np.load(f'./{dataset_name}/masks/{img_id}.npy',allow_pickle=True)
+img = cv2.imread(f"./{dataset_name}/images/{img_id}")
+masks = np.load(f'./{dataset_name}/masks/{os.path.splitext(img_id)[0]}.npy',allow_pickle=True)
 masks = masks.astype(int)
 
 instances_mask = masks[...,0] # instance_id
