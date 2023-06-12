@@ -18,8 +18,9 @@ category_color = {
 
 }
 
-dataset_name="SegPC-2021"
-img_id = "102.bmp"
+dataset_name="lizard"
+img_id = "consep_2.png"
+category_nums = 7
 
 img = cv2.imread(f"./{dataset_name}/images/{img_id}")
 masks = np.load(f'./{dataset_name}/masks/{os.path.splitext(img_id)[0]}.npy',allow_pickle=True)
@@ -39,7 +40,7 @@ cv2.imwrite("./instance_example.jpg",instance_output_img)
 
 # semantic_example
 semantic_output_img = img.copy()
-for i in range(1,6):
+for i in range(1,category_nums):
     category_id = semantic_mask==i
     semantic_output_img[category_id] = (semantic_output_img[category_id]*0.4 + tuple(tmp*0.6 for tmp in category_color[i])).astype(np.uint8)
 cv2.imwrite("./semantic_example.jpg",semantic_output_img)
