@@ -377,6 +377,10 @@ class All_boxes_Dataset(Dataset):
         instance_bboxes = []
         for instance_id in range(1,max_instance_nums+1):
             instance =  (instances_mask==instance_id).astype(np.uint8)*255
+            # num_labels, labels = cv2.connectedComponents(instance) #计算联通域，instance——label的误差，导致同一个instance_id对应多个obj
+            # if num_labels > 2:
+            #     print(f"{image_path} has muiltiple objects correspond to one instance_id")
+            #     continue
             c1 = cv2.boundingRect(instance)
             if c1[2]<=0 or c1[3]<=0:
                 continue
