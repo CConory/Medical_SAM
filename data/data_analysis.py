@@ -6,7 +6,7 @@ import argparse
 
 # 创建命令行参数解析器
 parser = argparse.ArgumentParser(description='Analyze the data distribution for each dataset')
-parser.add_argument('--dataset_name', type=str, default='bowl_2018', help='Name of the dataset')
+parser.add_argument('--dataset_name', type=str, default='HuBMAP', help='Name of the dataset')
 args = parser.parse_args()
 
 dataset = args.dataset_name
@@ -148,6 +148,8 @@ else:
 
 # 调整子图之间的间距
 plt.tight_layout()
+if not os.path.exists("./data_analysis_result"):
+    os.makedirs("./data_analysis_result")
 # 保存图像
 fig.savefig('./data_analysis_result/'+dataset+'_analysis.png', dpi=300)
 # 显示图像

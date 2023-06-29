@@ -90,14 +90,14 @@ def move_tif_images(coordinates):
 file_path = 'hubmap-hacking-the-human-vasculature/polygons.jsonl'
 data = read_jsonl(file_path)
 coordinates = extract_coordinates(data)
-move_tif_images(coordinates)
-# instance_masks, semantic_masks = merge_coordinates(coordinates)
-# obj_masks = merge_instance_semantic_masks(instance_masks, semantic_masks)
+instance_masks, semantic_masks = merge_coordinates(coordinates)
+obj_masks = merge_instance_semantic_masks(instance_masks, semantic_masks)
 
 if not os.path.exists(save_img_path):
     os.makedirs(save_img_path)
 if not os.path.exists(save_mask_path):
     os.makedirs(save_mask_path)
 
-# for item_id, obj_mask in obj_masks.items():
-#     save_obj_mask(obj_mask, item_id, save_mask_path)
+for item_id, obj_mask in obj_masks.items():
+    save_obj_mask(obj_mask, item_id, save_mask_path)
+move_tif_images(coordinates)

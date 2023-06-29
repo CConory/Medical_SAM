@@ -11,8 +11,8 @@ if not os.path.exists(save_img_path):
 if not os.path.exists(save_mask_path):
     os.makedirs(save_mask_path)
 
-img_dir = "/userhome/cs2/kuangww/medical_sam/datasets/MoNuSeg/MoNuSegTestData/"
-xml_dir = "/userhome/cs2/kuangww/medical_sam/datasets/MoNuSeg/MoNuSegTestData/"
+img_dir = "/userhome/cs2/kuangww/medical_sam/data/MoNuSeg/MoNuSegTestData/"
+xml_dir = "/userhome/cs2/kuangww/medical_sam/data/MoNuSeg/MoNuSegTestData/"
 
 img_names = os.listdir(img_dir)
 img_names = [tmp for tmp in img_names if os.path.splitext(tmp)[1] == ".tif"]
