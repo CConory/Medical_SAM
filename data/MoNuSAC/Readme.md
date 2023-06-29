@@ -34,3 +34,9 @@ cd ..
 # Run the script 
 python ./visualization.py
 ```
+class:
+1. Epithelial
+2. Lymphocyte
+3. Neutrophil
+4. Macrophage
+5. Ambiguous

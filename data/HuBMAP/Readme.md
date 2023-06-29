@@ -36,3 +36,8 @@ python ./visualization.py
 # Run the script 
 python ../data_split.py --dataset HuBMAP
 ```
+
+class:
+1. blood_vessel
+2. glomerulus
+3. unsure

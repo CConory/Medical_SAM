@@ -40,16 +40,16 @@ def merge_coordinates(coordinates):
         instance_mask = np.zeros(img.shape[:2])
         semantic_mask = np.zeros_like(img[:, :, 0], dtype=np.uint8)
         for annotation_type, annotation_coordinates in annotation_types.items():
-            if annotation_type == "blood_vessel":
-                for coordinates_list in annotation_coordinates:
-                    coordinates_array = np.array(coordinates_list, dtype=np.int32)
+            for coordinates_list in annotation_coordinates:
+                coordinates_array = np.array(coordinates_list, dtype=np.int32)
+                cv2.fillPoly(instance_mask, [coordinates_array], 1)
+                if annotation_type == "blood_vessel":
                     cv2.fillPoly(semantic_mask, [coordinates_array], 1)
-                    cv2.fillPoly(instance_mask, [coordinates_array], 1)
-            if annotation_type == "glomerulus":
-                for coordinates_list in annotation_coordinates:
-                    coordinates_array = np.array(coordinates_list, dtype=np.int32)
+                if annotation_type == "glomerulus":
                     cv2.fillPoly(semantic_mask, [coordinates_array], 2)
-                    cv2.fillPoly(instance_mask, [coordinates_array], 1)
+                if annotation_type == "unsure":
+                    cv2.fillPoly(semantic_mask, [coordinates_array], 3)
+
         mask = (instance_mask != 0)
         num_labels, labels = cv2.connectedComponents(mask.astype(np.uint8) * 255)  # 计算联通域
         instance_id = 0
