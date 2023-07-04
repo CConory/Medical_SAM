@@ -1,8 +1,8 @@
+datasets/
 data/*/*
 data/*.*
 # datasets/*/*
 # datasets/*.*
-datasets/
 weights/*
 __pycache__/
 *.jpg
