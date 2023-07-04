@@ -1,4 +1,3 @@
-datasets/*
 weights/*
 __pycache__/
 *.jpg
