@@ -7,7 +7,7 @@ import argparse
 def pre_csv(data_path,frac):
     np.random.seed(42)
     image_ids = os.listdir(data_path)
-    image_ids = [os.path.splitext(tmp)[0] for tmp in image_ids]
+    # image_ids = [os.path.splitext(tmp)[0] for tmp in image_ids]
     data_size = len(image_ids)
 
     train_size = int(round(len(image_ids) * frac, 0))
@@ -60,7 +60,7 @@ def pre_csv(data_path,frac):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     #parser.add_argument('--dataset', type=str, default='data/', help='the path of dataset')
-    parser.add_argument('--dataset', type=str, default='segpc2021/data/images/x', help='the path of images') # issue 16
+    parser.add_argument('--dataset', type=str, default='datasets/bowl_2018/images', help='the path of images') # issue 16
     parser.add_argument('--size', type=float, default=0.8, help='the size of your train set')
     args = parser.parse_args()
     # os.makedirs('src/',exist_ok=True)

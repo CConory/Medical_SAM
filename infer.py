@@ -6,150 +6,139 @@ import torch
 import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
-import pandas as pd
+import json
+from evaluate_from_pt import show_mask,show_box,mean_iou_and_dice
+import wandb
+
+def evaluate(predictor,img_paths,max_vis=10):
+
+    mIoU = []
+    dice = []
+    vis_results = []
+    vis_count = 0
+    with torch.no_grad():
+        for img_path in tqdm(img_paths):
+            ipt= cv2.imread(img_path)
+            ipt = cv2.cvtColor(ipt, cv2.COLOR_BGR2RGB)
+
+            mask = np.load(img_path.replace("/images/","/masks/").replace(".png",".npy"),allow_pickle=True)
+
+            semantic_mask = mask[...,1]!=0
+            instances_mask = mask[...,0]
+            max_instance_nums = np.max(instances_mask)
+            instance_bboxes = []
+            for instance_id in range(1,max_instance_nums+1):
+                instance =  (instances_mask==instance_id).astype(np.uint8)*255
+                c1 = cv2.boundingRect(instance)
+                instance_bboxes.append([c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3]])
+            
+            # Visualization
+            # plt.figure(figsize=(10,10))
+            # plt.imshow(ipt)
+            # for box in instance_bboxes:
+            #     show_box(box, plt.gca())
+            # plt.axis('off')
+            # plt.savefig("./tmp.jpg")
 
 
-def show_mask(mask, ax, random_color=False):
-    if random_color:
-        color = np.concatenate([np.random.random(3), np.array([0.8])], axis=0)
-    else:
-        color = np.array([30/255, 144/255, 255/255, 0.8])
-    h, w = mask.shape[-2:]
-    mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
-    ax.imshow(mask_image)
-    
-def show_points(coords, labels, ax, marker_size=375):
-    pos_points = coords[labels==1]
-    neg_points = coords[labels==0]
-    ax.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)
-    ax.scatter(neg_points[:, 0], neg_points[:, 1], color='red', marker='*', s=marker_size, edgecolor='white', linewidth=1.25)   
-    
-def show_box(box, ax):
-    x0, y0 = box[0], box[1]
-    w, h = box[2] - box[0], box[3] - box[1]
-    ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0,0,0,0), lw=2)) 
+            # 一类一类地推理画mask
 
-sam_checkpoint = "sam_vit_h_4b8939.pth"
+            if len(instance_bboxes):
+                input_boxes = torch.tensor(instance_bboxes, device=predictor.device)
+
+                predictor.set_image(ipt)
+
+                transformed_boxes = predictor.transform.apply_boxes_torch(input_boxes, ipt.shape[:2])
+
+                masks, _, _ = predictor.predict_torch(
+                    point_coords=None,
+                    point_labels=None,
+                    boxes=transformed_boxes,
+                    multimask_output=False,
+                )
+            else:
+                masks = torch.zeros((1,1,*ipt.shape[:2]))
+            
+
+            pred_fg = torch.sum(masks,dim=0).bool().cpu().numpy()[0]
+            _mIoU,_dice = mean_iou_and_dice(semantic_mask[None][None],pred_fg[None][None])
+            mIoU.append(_mIoU)
+            dice.append(_dice)
+
+            if vis_count< max_vis:
+                target_fg = semantic_mask
+                inter_fg = pred_fg & target_fg
+                target_fg = (~inter_fg) & target_fg
+                pred_fg = (~inter_fg) & pred_fg
+
+                plt.figure(figsize=(10,10))
+                plt.imshow(ipt)
+                show_mask(pred_fg, plt.gca(),np.array([0/255, 0/255, 255/255, 0.4]))
+                show_mask(target_fg, plt.gca(),np.array([0/255, 255/255, 0/255, 0.4]))
+                show_mask(inter_fg, plt.gca(),np.array([255/255, 255/255, 0/255, 0.4]))
+                for box in instance_bboxes:
+                    show_box(box, plt.gca())
+                plt.axis('off')
+                vis_results.append(wandb.Image(plt))
+            vis_count += 1
+    return  mIoU, dice, vis_results
+            
+
+
+wandb_flag = False  
+dataset_name = "PanNuke"
+prompt_type = "All_Boxes"
+if wandb_flag:
+    wandb.init(project="Medical_SAM",config={
+        "dataset": dataset_name,
+        "prompt": prompt_type
+    })
+    wandb.run.name = wandb.run.id
+    wandb.run.save()
+
+sam_checkpoint = "/userhome/cs2/kuangww/segment-anything/notebooks/models/sam_vit_h_4b8939.pth"
 model_type = "vit_h"
 
 device = "cuda"
-
-df = pd.read_csv('segpc2021/test_train_data.csv') # 分割好的数据集
-imgs = df[df.category!='train']['image_id'] # 选中验证集和测试集
 
 sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
 sam.to(device=device)
 
 predictor = SamPredictor(sam)
 
-with torch.no_grad():
 
-    for img_name in tqdm(imgs):
-        img_path = f'segpc2021/data/images/x/{img_name}' # 输入图像RGB
-        ipt= cv2.imread(img_path)
-        ipt = cv2.cvtColor(ipt, cv2.COLOR_BGR2RGB)
-
-        img_id = list(img_name.split('.'))[0]
-        masks = os.listdir(f'segpc2021/data/images/y/{img_id}/') # 原分割结果 (Ground Truth)
-
-        core_bboxes = []
-        cell_bboxes = []
-
-        # 这里可能需要根据mask文件夹的结构自行修改
-        for e_mask in masks:
-            mask_path = f'segpc2021/data/images/y/{img_id}/{e_mask}'
-
-            mask_img = cv2.imread(mask_path, 0)
-            img_core = np.copy(mask_img)
-            img_core[img_core==20] = 0
-            img_cell = np.copy(mask_img)
-            img_cell[img_cell==40] = 20
-    
-            # 画外接矩形
-            contours1, _ = cv2.findContours(img_core, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) 
-            c1 = cv2.boundingRect(contours1[0])
-
-            contours2, _ = cv2.findContours(img_cell, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            c2 = cv2.boundingRect(contours2[0])
-
-            core_bboxes.append([c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3]])
-            cell_bboxes.append([c2[0], c2[1], c2[0]+c2[2], c2[1]+c2[3]])
-
-            del img_core, img_cell
-    
-        # plt.figure(figsize=(10, 10))
-        # plt.imshow(ipt)
-
-        # 一类一类地推理画mask
-
-        ## core/nuclei
-
-        input_core_boxes = torch.tensor(core_bboxes, device=predictor.device)
-
-        predictor.set_image(ipt)
-
-        transformed_boxes = predictor.transform.apply_boxes_torch(input_core_boxes, ipt.shape[:2])
-        masks, _, _ = predictor.predict_torch(
-            point_coords=None,
-            point_labels=None,
-            boxes=transformed_boxes,
-            multimask_output=False,
-        )
-
-        # for mask in masks:
-        #     show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
-        # for box in input_core_boxes:
-        #     show_box(box.cpu().numpy(), plt.gca())
-
-        core_zeros = torch.zeros(masks.shape[-2:]) #h, w
-
-        for i in range(masks.shape[0]): #number of objects 
-
-            pred = masks[i,0,:,:]
-            core_zeros[pred==True]=40 #这里因为GT图中的这类分割像素为40，所以把预测的这类像素也转化为40，进行对应。需要根据数据集进行自行修改
-        
-        core_save_path = f'segpc2021/bbox/mask/nuclei/{img_id}.png'
-        cv2.imwrite(core_save_path, core_zeros.numpy())
+with open("./datasets/PanNuke/data_split.json", 'r') as f:
+    ds_dict = json.load(f)
+valid_names = ds_dict["valid"]
+test_names = ds_dict["test"]
 
 
-        input_cell_boxes = torch.tensor(cell_bboxes, device=predictor.device)
+img_paths = [os.path.join("./datasets/PanNuke/images/",tmp+".png") for tmp in valid_names]
+mIoU,dice, valid_vis_results = evaluate(predictor,img_paths)
 
-        transformed_boxes = predictor.transform.apply_boxes_torch(input_cell_boxes, ipt.shape[:2])
-        masks, _, _ = predictor.predict_torch(
-            point_coords=None,
-            point_labels=None,
-            boxes=transformed_boxes,
-            multimask_output=False,
-        )
+valid_mIoU = round(sum(mIoU)/len(mIoU),3)
+valid_dice = round(sum(dice)/len(dice),3)
+print("valid_mIoU: ",valid_mIoU)
+print("valid_Dice: ",valid_dice)
 
-        # for mask in masks:
-        #     show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
-        # for box in input_cell_boxes:
-        #     show_box(box.cpu().numpy(), plt.gca())
+img_paths = [os.path.join("./datasets/PanNuke/images/",tmp+".png") for tmp in test_names]
+mIoU,dice, test_vis_results = evaluate(predictor,img_paths)
 
-        cell_zeros = torch.zeros(masks.shape[-2:]) #h, w
-
-        for i in range(masks.shape[0]): #number of objects 
-
-            pred = masks[i,0,:,:]
-            cell_zeros[pred==True] = 20
-        
-        cell_save_path = f'segpc2021/bbox/mask/cell/{img_id}.png'
-        cv2.imwrite(cell_save_path, cell_zeros.numpy())
+test_mIoU = round(sum(mIoU)/len(mIoU),3)
+test_dice = round(sum(dice)/len(dice),3)
+print("test_mIoU: ",test_mIoU)
+print("test_Dice: ",test_dice)
 
 
-        # 把所有类的mask合成
-        mix_zeros = core_zeros + cell_zeros
-        mix_zeros[mix_zeros > 20] = 40
-        mix_save_path = f'segpc2021/bbox/mask/mix/{img_id}.png'
-        cv2.imwrite(mix_save_path, mix_zeros.numpy())
-
-        # plt.axis('off')
-        # plt.savefig(f'segpc2021/bbox/plot/{img_id}.png')
-
-        del input_core_boxes, transformed_boxes, core_zeros, input_cell_boxes, masks, cell_zeros, mix_zeros
-        torch.cuda.empty_cache()
-        # plt.clf()
+if wandb_flag:
+    wandb.log({
+        "valid_results": valid_vis_results,
+        "test_results": test_vis_results,
+        "valid/mIoU":valid_mIoU,
+        "valid/dice":valid_dice,
+        "test/mIoU":test_mIoU,
+        "test/dice":test_dice
+        })
     
 
 
