@@ -1,0 +1,6 @@
+# 下载ZIP文件
+zip_url="https://storage.googleapis.com/kagglesdsdata/competitions/8089/44321/stage1_train.zip?GoogleAccessId=web-data@kaggle-161607.iam.gserviceaccount.com&Expires=1687996906&Signature=Fn9TWBcTHPqNCZDcku13Q0yDf1TfQqohjvlr3C5L4aA10KxZoBYs1WiR8pm%2BAqOG1bmvIrOkESk0W38YyXWevDZ4gxtBnQXgi7vvZdympDTN91b07Cwz4W%2FMURDH2qBuQN30ajIMPyHYYyqtoYuznyvtGC7rakuD6HDWyvemQpoeEGVZ%2BfOX%2BfAp9SvdEVXuH7H5cW7mQzJ2Iqa5rq3MCoBR84DTvshHAuxkqjD4fJ6FYZSyqrUTDVmr2zUKWgYCy07tf8spr0mTqLN9PTT9m%2BJj3NyGS6lppLiqkAnW8IpWj7yJ8d8jxYMgjl7D0u8a2KxNtWqkredoTJO4DZTq2g%3D%3D&response-content-disposition=attachment%3B+filename%3Dstage1_train.zip"
+zip_file="bowl_2018.zip"
+download_folder="."
+
+wget -O "$download_folder/$zip_file" "$zip_url"

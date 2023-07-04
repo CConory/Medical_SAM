@@ -1,0 +1,6 @@
+# 下载ZIP文件
+zip_url="https://storage.googleapis.com/kaggle-data-sets/1749846/2858129/bundle/archive.zip?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=gcp-kaggle-com%40kaggle-161607.iam.gserviceaccount.com%2F20230626%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20230626T000536Z&X-Goog-Expires=259200&X-Goog-SignedHeaders=host&X-Goog-Signature=90206cfcb9e5f865c2b74e6c7bbe4d73f14b66439c78d2e313583d1415e7a948c82a2ed71b5d90ce47a1e67e603486a5e1f0a137352337bd94ea1c8dad6155b16e3c1f03737c5d4d3402c41306a28e43ed5e6429758984b3eb1e8579b932a116621224559ecd8fd49f57670e20ff54c8cd567e0cf76211c1ebb80673deaee2667409e1db582cbaee2f2c13a976b0ec8493e4c64d0461e6ae15995f0634bbad8072fde102370d05cd39652136f2604fd0712ee71bec0716423390132bff2966428fd7e3b84c5ff8cf6e64bc214548b494abd4e1374fb1cc524d6ddafdd28e1af4fa43904ee6eb713cbe8e80d37e533a25c25a60392efec39c8fc50f790794c173"
+zip_file="lizard.zip"
+download_folder="."
+
+wget -O "$download_folder/$zip_file" "$zip_url"
