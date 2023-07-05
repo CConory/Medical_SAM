@@ -8,8 +8,8 @@ def random_color():
     r,g,b = random.uniform(0.8, 1)*255., random.uniform(0.6, 0.9)*255., random.uniform(0, 0.2)*255.
     return (r, g, b)
 
-dataset_name="HuBMAP"
-img_id = "HuBMAP_0a1d277fb473.tif"
+dataset_name="TNBC"
+img_id = "TNBC_09_4.png"
 category_color = {}
 category_nums = 21
 

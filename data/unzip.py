@@ -8,26 +8,22 @@ def unzip_file(extract_folder):
         for zip_save_path in ["MoNuSAC/MoNuSAC_images_and_annotations.zip", "MoNuSAC/MoNuSAC.zip"]:
             with zipfile.ZipFile(zip_save_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_folder)
-            # 删除ZIP文件（可选）
-            os.remove(zip_save_path)
+
     elif extract_folder == "MoNuSeg":
         for zip_save_path in ["MoNuSeg/MoNuSeg_train_Dataset.zip", "MoNuSeg/MoNuSeg_test_Dataset.zip"]:
             with zipfile.ZipFile(zip_save_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_folder)
-            # 删除ZIP文件（可选）
-            os.remove(zip_save_path)
+
     elif extract_folder == "SegPC-2021":
         for zip_save_path in ["SegPC-2021/valid.zip", "SegPC-2021/train.zip"]:
             with zipfile.ZipFile(zip_save_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_folder)
-            # 删除ZIP文件（可选）
-            os.remove(zip_save_path)
     else:
         zip_save_path = extract_folder + "/" + extract_folder + ".zip"
         with zipfile.ZipFile(zip_save_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_folder)
-        # 删除ZIP文件（可选）
-        os.remove(zip_save_path)
+            zip_ref.extractall(extract_folder + "/" + extract_folder)
+    # 删除ZIP文件（可选）
+    os.remove(zip_save_path)
 
 
 # 创建命令行参数解析器
