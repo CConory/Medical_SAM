@@ -9,7 +9,7 @@ def random_color():
     return (r, g, b)
 
 dataset_name="HuBMAP"
-img_id = "HuBMAP_0a1d277fb473.tif"
+img_id = "HuBMAP_0a4ddecc55f0.tif"
 category_color = {}
 category_nums = 21
 
@@ -17,7 +17,10 @@ for i in range(1, 22):
     r = random.randint(0, 255)
     g = random.randint(0, 255)
     b = random.randint(0, 255)
-    category_color[i] = (r, g, b)
+    category_color[i] = (b, g, r)
+    
+category_color[1] = (0,255,0)
+category_color[2] = (255,0,0)
 
 
 
