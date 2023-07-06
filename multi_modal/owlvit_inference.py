@@ -108,6 +108,13 @@ def wandb_logger(result,visulization_imgs,args,category_names):
     data.append(["Mean",result["ap"].mean(0)*100,r.mean(0)[conf]*100,p.mean(0)[conf]*100,f1.mean(0)[conf]*100,round(conf / 1000, 2)])
     table = wandb.Table(data=data, columns = ["Class_Name", f"AP_{int(args.mAP_threshold*100)}","Recall","Precision","F1"," Best Confidence"])
     wandb.log({"val/result": table})
+
+    wandb.log({
+            f"test/mAP_{int(args.mAP_threshold*100)}": result["ap"].mean(0)*100,
+            "test/recall": r.mean(0)[conf]*100,
+            "test/precsion":p.mean(0)[conf]*100,
+            "test/f1":f1.mean(0)[conf]*100,
+            })
     
     for class_id in result["classes"]:
         class_name = category_names[class_id]
@@ -146,7 +153,7 @@ if __name__ == '__main__':
             "model_type": args.model_type,
             "mAP_threshold": args.mAP_threshold,
             "data_type": args.dataset_type,
-            "Finetuned": False
+            "fine-tune": False
         })
         wandb.run.name = wandb.run.id
         wandb.run.save()
