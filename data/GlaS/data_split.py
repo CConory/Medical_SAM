@@ -14,15 +14,12 @@ data = {
 # 遍历文件夹中的文件
 for filename in os.listdir(folder_path):
     if filename.endswith(".bmp"):
-        # 提取图像文件名（不包含文件扩展名）
-        image_name = os.path.splitext(filename)[0]
-
-        if image_name.startswith("train"):
-            data["train"].append(image_name)
-        elif image_name.startswith("testA"):
-            data["valid"].append(image_name)
-        elif image_name.startswith("testB"):
-            data["test"].append(image_name)
+        if filename.startswith("train"):
+            data["train"].append(filename)
+        elif filename.startswith("testA"):
+            data["valid"].append(filename)
+        elif filename.startswith("testB"):
+            data["test"].append(filename)
 
 # 写入JSON文件
 json_path = "./data_split.json"
