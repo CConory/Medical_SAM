@@ -8,17 +8,16 @@ def random_color():
     r,g,b = random.uniform(0.8, 1)*255., random.uniform(0.6, 0.9)*255., random.uniform(0, 0.2)*255.
     return (r, g, b)
 
-dataset_name="TNBC"
-img_id = "TNBC_09_4.png"
+dataset_name="kvasir-seg"
+img_id = "cju0qkwl35piu0993l0dewei2.jpg"
 category_color = {}
-category_nums = 21
+category_nums = 2
 
-for i in range(1, 22):
+for i in range(1, category_nums):
     r = random.randint(0, 255)
     g = random.randint(0, 255)
     b = random.randint(0, 255)
     category_color[i] = (r, g, b)
-
 
 
 img = cv2.imread(f"./{dataset_name}/images/{img_id}")
@@ -39,7 +38,7 @@ cv2.imwrite("./instance_example.jpg",instance_output_img)
 
 # semantic_example
 semantic_output_img = img.copy()
-for i in range(1,category_nums):
-    category_id = semantic_mask==i
+for i in range(1, category_nums):
+    category_id = semantic_mask == i
     semantic_output_img[category_id] = (semantic_output_img[category_id]*0.4 + tuple(tmp*0.6 for tmp in category_color[i])).astype(np.uint8)
-cv2.imwrite("./semantic_example.jpg",semantic_output_img)
+cv2.imwrite("./semantic_example.jpg", semantic_output_img)
