@@ -5,9 +5,9 @@ if module_path not in sys.path:
     sys.path.append(module_path)
 
 import numpy as np
-from dataset import All_boxes_Dataset,get_path
+from dataset import Medical_Detecton
 import requests
-from PIL import Image
+
 import torch
 import cv2
 from transformers import OwlViTProcessor, OwlViTForObjectDetection
@@ -17,72 +17,50 @@ from tqdm import tqdm
 
 import argparse
 import matplotlib.pyplot as plt
+from PIL import Image,ImageDraw,ImageFont
 from evaluate_from_pt import show_box
 import wandb
 
-def mask_2_boxes(mask):
-    mask = mask.astype(np.int32)
-    semantic_mask = mask[...,1]==1 # only for vessels
-    instances_mask = mask[...,0]
-    max_instance_nums = np.max(instances_mask)
-    instance_bboxes = []
-    for instance_id in range(1,max_instance_nums+1):
-        instance =  ((instances_mask==instance_id) * semantic_mask).astype(np.uint8)*255
-        # cv2.imwrite("./tmp.jpg",instance)
-        num_labels, labels = cv2.connectedComponents(instance)
-        for i in range(1,num_labels):
-            c1 = cv2.boundingRect((labels==i).astype(np.uint8)*255)
-            if c1[2]<=0 or c1[3]<=0:
-                continue
-            instance_bboxes.append([0,c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3],0]) # bs_id, x1y1x2y2, class_index 
-    if len(instance_bboxes):
-        result = np.array(instance_bboxes,dtype=np.float32)
-    else:
-        result = np.zeros((0,6),dtype=np.float32)
-    return result
-
-
-class Owlvit_dataset(All_boxes_Dataset):
-
-    def __getitem__(self, index):
-        file_name = self.file_names[index]
-        suffix = os.path.splitext(file_name)[1]
-        image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
-        image = Image.open(image_path)
-        img_size = image.size
-
-        mask = np.load(mask_path,allow_pickle=True)
-        mask = mask.astype(np.int32)
-        instance_bboxes = mask_2_boxes(mask)
-
-        # plt.figure(figsize=(10,10))
-        # plt.imshow(image)
-        # for box in instance_bboxes: 
-        #     show_box(box[1:-1], plt.gca(),"green")
-        # plt.savefig("./tmp.jpg")
-        # import pdb;pdb.set_trace()
-
-        caption_text = "cell"
-
-        return caption_text,img_size,image,torch.tensor(instance_bboxes)
-
-
-    @staticmethod
-    def collate_fn(batch):
-        caption_text,img_size,images,instance_bboxes = zip(*batch)
-        for i,l in enumerate(instance_bboxes):
-            l[:, 0] = i 
-        return caption_text,img_size,images,instance_bboxes
 
 CATEGORY_CLASSES=["vessel"]
 
-def visualization_bboxes(image,target,predn):
+def tag_images(img,objs,color="green",category_dict=None):
+    '''
+    objs = [N,5] for targets [ xyxy, category_id]
+         = [N,6] for predn, [xyxy,score,category_id]
+    '''
+    W,H = img.size
+    img1 = img.copy()
+    draw = ImageDraw.Draw(img1)
+    font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf', 10)
+    for i,obj in enumerate(objs):
+        box = obj[:4]
+        draw.rectangle(box,outline=color,width=4)
+        x1,y1,x2,y2 = box
+        if len(obj) == 6:
+            label = label = category_dict[int(obj[-1])] if category_dict else str(int(int(obj[-1])))
+            label +=  '({:.2f})'.format(obj[4])
+        else:
+            label = category_dict[int(obj[-1])] if category_dict else str(int(int(obj[-1])))
+        if len(obj) > 4:
+            w,h = font.getsize(label)
+            if x1+w > W or y2+h > H:
+                draw.rectangle((x1, y2-h, x1 + w, y2), fill=color)
+                draw.text((x1,y2-h),label,fill='white',font=font)
+            else:
+                draw.rectangle((x1, y2, x1 + w, y2 + h), fill=color)
+                draw.text((x1,y2),label,fill='white',font=font)
+    return img1
+
+def visualization_bboxes(image,target,predn,category_dict = None):
+    image = tag_images(image,target,color = "green",category_dict = category_dict)
+    image = tag_images(image,predn,color = "blue",category_dict = category_dict)
     plt.figure(figsize=(10,10))
     plt.imshow(image)
-    for box in target: 
-        show_box(box, plt.gca(),"yellow")
-    for box in predn: 
-        show_box(box, plt.gca(),"#0099FF")
+    # for box in target: 
+    #     show_box(box, plt.gca(),"yellow")
+    # for box in predn: 
+    #     show_box(box, plt.gca(),"#0099FF")
     plt.axis('off')
     return wandb.Image(plt)
 
@@ -116,14 +94,15 @@ def wandb_logger(result,visulization_imgs,args,category_names):
             "test/f1":f1.mean(0)[conf]*100,
             })
     
-    for class_id in result["classes"]:
-        class_name = category_names[class_id]
-        recall = result['recall'][class_id]
-        precision = result['precision'][class_id]
-        data = [[x, y] for (x, y) in zip(recall, precision)]
-        table = wandb.Table(data=data, columns = ["recall", "precision"])
-        plot = wandb.plot.line(table, "recall", "precision", stroke=None, title="Average Precision: "+class_name)
-        wandb.log({"val/AP/"+class_name : plot})
+    # 类别太多了，画的太慢了
+    # for index,class_id in enumerate(result["classes"][:5]):
+    #     class_name = category_names[class_id]
+    #     recall = result['recall'][index]
+    #     precision = result['precision'][index]
+    #     data = [[x, y] for (x, y) in zip(recall, precision)]
+    #     table = wandb.Table(data=data, columns = ["recall", "precision"])
+    #     plot = wandb.plot.line(table, "recall", "precision", stroke=None, title="Average Precision: "+class_name)
+    #     wandb.log({"val/AP/"+class_name : plot})
     
     class_name = "Mean"
     recall = result['recall'].mean(0)
@@ -163,15 +142,15 @@ if __name__ == '__main__':
     dataset_name = args.dataset
     dataset_dir = os.path.join(dataset_root_dir,dataset_name)
     device = "cuda"
-    dataset = Owlvit_dataset(os.path.join(dataset_dir,"data_split.json"),args.dataset_type,device)
-
+    dataset = Medical_Detecton(os.path.join(dataset_dir,"data_split.json"),args.dataset_type,device)
+    collate_fn = Medical_Detecton.collate_fn
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=4,
         num_workers=4,
         shuffle=False,
         pin_memory=False,
-        collate_fn = Owlvit_dataset.collate_fn,
+        collate_fn = collate_fn,
         drop_last=False
     )
 
@@ -183,13 +162,13 @@ if __name__ == '__main__':
     visulization_imgs = []
     vis_count = 0
     max_vis = 9
-    for (caption_text, imgs_size, images,targets) in tqdm(dataloader):
-        inputs = processor(text=list(caption_text), images=images, return_tensors="pt")
+    for (imgs_size, images,targets,_) in tqdm(dataloader):
+        inputs = processor(text=["cell"]*len(images), images=images, return_tensors="pt")
         inputs = {k:v.to(device) for k,v in inputs.items()}
         with torch.no_grad():
             outputs = model(**inputs)
         
-        target_sizes = torch.Tensor(imgs_size).to(device)
+        target_sizes = torch.stack(imgs_size,dim=0).to(device)
         results = processor.post_process_object_detection(outputs=outputs, threshold=0.0001,target_sizes=target_sizes)
         
         predn = []
@@ -202,10 +181,10 @@ if __name__ == '__main__':
         
         # Logger_visualization
         if vis_count<max_vis and args.wandb_log:
-            vis_pred = predn[0][predn[0][:,-2]>0.5][:,:4].cpu().numpy()
+            vis_pred = predn[0][predn[0][:,-2]>0.5].cpu().numpy()
             visulization_imgs.append(visualization_bboxes(
                 images[0],
-                targets[0][:,1:-1],
+                targets[0][:,1:],
                 vis_pred
                 ))
             vis_count += 1

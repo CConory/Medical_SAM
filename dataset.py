@@ -10,12 +10,37 @@ import cv2
 from segment_anything.modeling import Sam
 from segment_anything.utils.transforms import ResizeLongestSide
 import os
+import torchvision
+import matplotlib.pyplot as plt
+
+from PIL import Image
 
 def get_path(dataset_dir,file_name,suffix):
     image_path = os.path.join(dataset_dir,"images",file_name)
     feature_path = os.path.join(dataset_dir,"features",file_name.replace(suffix,".pt"))
     mask_path = os.path.join(dataset_dir,"masks",file_name.replace(suffix,".npy"))
     return image_path,feature_path,mask_path
+
+def mask_2_boxes(mask):
+    mask = mask.astype(np.int32)
+    semantic_mask = mask[...,1]==1 # only for vessels
+    instances_mask = mask[...,0]
+    max_instance_nums = np.max(instances_mask)
+    instance_bboxes = []
+    for instance_id in range(1,max_instance_nums+1):
+        instance =  ((instances_mask==instance_id) * semantic_mask).astype(np.uint8)*255
+        # cv2.imwrite("./tmp.jpg",instance)
+        num_labels, labels = cv2.connectedComponents(instance)
+        for i in range(1,num_labels):
+            c1 = cv2.boundingRect((labels==i).astype(np.uint8)*255)
+            if c1[2]<=0 or c1[3]<=0:
+                continue
+            instance_bboxes.append([0,c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3],0]) # bs_id, x1y1x2y2, class_index 
+    if len(instance_bboxes):
+        result = np.array(instance_bboxes,dtype=np.float32)
+    else:
+        result = np.zeros((0,6),dtype=np.float32)
+    return result
 
 class Dataset(data.Dataset):
     def __init__(self, json_path,split,device):
@@ -402,3 +427,83 @@ class All_boxes_Dataset(Dataset):
             )
             masks.append(mask[i][None][None][None])
         return batched_input, masks,image_path
+
+class Medical_Detecton(All_boxes_Dataset):
+    def __init__(self, json_path,split,device,transforms=None):
+        super().__init__(json_path, split,device)
+        self._transforms = transforms
+    def __getitem__(self, index):
+        file_name = self.file_names[index]
+        suffix = os.path.splitext(file_name)[1]
+        image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
+        image = Image.open(image_path)
+        w,h = image.size
+        img_size = torch.tensor([h, w])
+
+        mask = np.load(mask_path,allow_pickle=True)
+        mask = mask.astype(np.int32)
+        instance_bboxes = mask_2_boxes(mask)
+
+        # plt.figure(figsize=(10,10))
+        # plt.imshow(image)
+        # for box in instance_bboxes: 
+        #     show_box(box[1:-1], plt.gca(),"green")
+        # plt.savefig("./tmp.jpg")
+        # import pdb;pdb.set_trace()
+        if self._transforms is not None:
+            img,_ = self._transforms(image,None)
+
+        return img_size,img,torch.tensor(instance_bboxes),image
+
+
+    @staticmethod
+    def collate_fn(batch):
+        img_size,images,instance_bboxes,ori_image = zip(*batch)
+        for i,l in enumerate(instance_bboxes):
+            l[:, 0] = i 
+        return img_size,images,instance_bboxes,ori_image
+
+class CocoDetection(torchvision.datasets.CocoDetection):
+    def __init__(self, img_folder, ann_file, transforms):
+        super().__init__(img_folder, ann_file)
+        self._transforms = transforms # from groundiing_dino
+        id_map= {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 13, 12: 14, 13: 15, 14: 16, 15: 17, 16: 18, 17: 19, 18: 20, 19: 21, 20: 22, 21: 23, 22: 24, 23: 25, 24: 27, 25: 28, 26: 31, 27: 32, 28: 33, 29: 34, 30: 35, 31: 36, 32: 37, 33: 38, 34: 39, 35: 40, 36: 41, 37: 42, 38: 43, 39: 44, 40: 46,
+                  41: 47, 42: 48, 43: 49, 44: 50, 45: 51, 46: 52, 47: 53, 48: 54, 49: 55, 50: 56, 51: 57, 52: 58, 53: 59, 54: 60, 55: 61, 56: 62, 57: 63, 58: 64, 59: 65, 60: 67, 61: 70, 62: 72, 63: 73, 64: 74, 65: 75, 66: 76, 67: 77, 68: 78, 69: 79, 70: 80, 71: 81, 72: 82, 73: 84, 74: 85, 75: 86, 76: 87, 77: 88, 78: 89, 79: 90}
+        self.category_id_map = {value:key for key,value in id_map.items()}
+
+        
+    
+    def __getitem__(self, idx):
+        img, target = super().__getitem__(idx)
+        w, h = img.size
+        boxes = [obj["bbox"] for obj in target]
+        categor_ids = [self.category_id_map[obj["category_id"]] for obj in target] # COCO 类别有 80类， 但是类别id并不连续，因此需要把他们映射到【0～80】之间
+        boxes = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
+        categor_ids = torch.as_tensor(categor_ids, dtype=torch.float32)
+        target = torch.zeros((len(boxes),6))
+        target[:,1:-1] = boxes
+        target[:,-1] = categor_ids
+
+        target[:, 3:-1] += target[:, 1:3]
+        target[:, 1:-1:2].clamp_(min=0, max=w)
+        target[:, 2:-1:2].clamp_(min=0, max=h)
+        keep = (target[:, 4] > target[:, 2]) & (target[:, 3] > target[:, 1])
+        target = target[keep]
+
+        ori_img = img
+
+        img_size = torch.tensor([h, w])
+
+        if self._transforms is not None:
+            img,_ = self._transforms(img,None)
+ 
+
+        return img_size,img,target,ori_img
+
+    
+    @staticmethod
+    def collate_fn(batch):
+        img_size,images,instance_bboxes,ori_img = zip(*batch)
+        for i,l in enumerate(instance_bboxes):
+            l[:, 0] = i 
+        return img_size,images,instance_bboxes,ori_img
