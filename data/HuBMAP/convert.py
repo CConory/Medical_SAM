@@ -35,7 +35,7 @@ def merge_coordinates(coordinates):
     instance_masks = {}
     semantic_masks = {}
     for item_id, annotation_types in coordinates.items():
-        tif_file_path = f'.HuBMAP/train/{item_id}.tif'  # 图像文件路径，请根据实际文件位置进行调整
+        tif_file_path = f'HuBMAP/train/{item_id}.tif'  # 图像文件路径，请根据实际文件位置进行调整
         img = cv2.imread(tif_file_path, cv2.IMREAD_UNCHANGED)
         instance_mask = np.zeros(img.shape[:2])
         semantic_mask = np.zeros_like(img[:, :, 0], dtype=np.uint8)
@@ -83,7 +83,7 @@ save_img_path = "images"
 
 def move_tif_images(coordinates):
     for item_id, annotation_types in coordinates.items():
-        tif_file_path = f'train/{item_id}.tif'  # 图像文件路径，请根据实际文件位置进行调整
+        tif_file_path = f'./HuBMAP/train/{item_id}.tif'  # 图像文件路径，请根据实际文件位置进行调整
         os.rename(tif_file_path, os.path.join(save_img_path, "HuBMAP_" + item_id + ".tif"))
 
 

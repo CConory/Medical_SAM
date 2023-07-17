@@ -44,6 +44,6 @@ for file in tqdm(file_ids):
             # 处理语义分割通道
             targets[..., 1] = semantic_mask
             targets = targets.astype(int)
-            os.rename(img_path, os.path.join(save_img_path, file))
-            np.save(os.path.join(save_mask_path, image_name+".npy"), targets)
+            os.rename(img_path, os.path.join(save_img_path, "GlaS_"+file))
+            np.save(os.path.join(save_mask_path, "GlaS_" + image_name+".npy"), targets)
 
