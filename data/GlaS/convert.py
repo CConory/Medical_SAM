@@ -31,7 +31,7 @@ for file in tqdm(file_ids):
             mask_image = cv2.imread(annotation_path, cv2.IMREAD_GRAYSCALE)
 
             # 提取大于threshold的部分
-            threshold = 100
+            threshold = 0
             instance_mask = (mask_image > threshold).astype(np.uint8) * 255
             semantic_mask = (mask_image > threshold).astype(np.uint8)
 
