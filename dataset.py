@@ -15,6 +15,10 @@ import matplotlib.pyplot as plt
 
 from PIL import Image
 
+from groundingdino.util.vl_utils import build_captions_and_token_span,create_positive_map_from_span
+from groundingdino.util import get_tokenlizer, box_ops
+
+
 def get_path(dataset_dir,file_name,suffix):
     image_path = os.path.join(dataset_dir,"images",file_name)
     feature_path = os.path.join(dataset_dir,"features",file_name.replace(suffix,".pt"))
@@ -429,7 +433,7 @@ class All_boxes_Dataset(Dataset):
         return batched_input, masks,image_path
 
 class Medical_Detecton(All_boxes_Dataset):
-    def __init__(self, json_path,split,device,transforms=None):
+    def __init__(self, json_path,split,device,transforms=None,tokenizer=None):
         super().__init__(json_path, split,device)
         self._transforms = transforms
     def __getitem__(self, index):
@@ -464,12 +468,20 @@ class Medical_Detecton(All_boxes_Dataset):
         return img_size,images,instance_bboxes,ori_image
 
 class CocoDetection(torchvision.datasets.CocoDetection):
-    def __init__(self, img_folder, ann_file, transforms):
+    def __init__(self, img_folder, ann_file, transforms,is_train=False,tokenizer=None):
         super().__init__(img_folder, ann_file)
         self._transforms = transforms # from groundiing_dino
-        id_map= {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 13, 12: 14, 13: 15, 14: 16, 15: 17, 16: 18, 17: 19, 18: 20, 19: 21, 20: 22, 21: 23, 22: 24, 23: 25, 24: 27, 25: 28, 26: 31, 27: 32, 28: 33, 29: 34, 30: 35, 31: 36, 32: 37, 33: 38, 34: 39, 35: 40, 36: 41, 37: 42, 38: 43, 39: 44, 40: 46,
+        self.inverse_continue_map= {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 13, 12: 14, 13: 15, 14: 16, 15: 17, 16: 18, 17: 19, 18: 20, 19: 21, 20: 22, 21: 23, 22: 24, 23: 25, 24: 27, 25: 28, 26: 31, 27: 32, 28: 33, 29: 34, 30: 35, 31: 36, 32: 37, 33: 38, 34: 39, 35: 40, 36: 41, 37: 42, 38: 43, 39: 44, 40: 46,
                   41: 47, 42: 48, 43: 49, 44: 50, 45: 51, 46: 52, 47: 53, 48: 54, 49: 55, 50: 56, 51: 57, 52: 58, 53: 59, 54: 60, 55: 61, 56: 62, 57: 63, 58: 64, 59: 65, 60: 67, 61: 70, 62: 72, 63: 73, 64: 74, 65: 75, 66: 76, 67: 77, 68: 78, 69: 79, 70: 80, 71: 81, 72: 82, 73: 84, 74: 85, 75: 86, 76: 87, 77: 88, 78: 89, 79: 90}
-        self.category_id_map = {value:key for key,value in id_map.items()}
+        self.continue_map = {value:key for key,value in self.inverse_continue_map.items()}
+
+        self.is_train = is_train
+
+        if self.is_train:
+            category_dict = self.coco.dataset['categories']
+            self.cat_list = [item['name'] for item in category_dict]
+            assert tokenizer is not None
+            self.tokenlizer = tokenizer
 
         
     
@@ -477,7 +489,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         img, target = super().__getitem__(idx)
         w, h = img.size
         boxes = [obj["bbox"] for obj in target]
-        categor_ids = [self.category_id_map[obj["category_id"]] for obj in target] # COCO 类别有 80类， 但是类别id并不连续，因此需要把他们映射到【0～80】之间
+        categor_ids = [self.continue_map[obj["category_id"]] for obj in target] # COCO 类别有 80类， 但是类别id并不连续，因此需要把他们映射到【0～80】之间
         boxes = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
         categor_ids = torch.as_tensor(categor_ids, dtype=torch.float32)
         target = torch.zeros((len(boxes),6))
@@ -489,6 +501,9 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         target[:, 2:-1:2].clamp_(min=0, max=h)
         keep = (target[:, 4] > target[:, 2]) & (target[:, 3] > target[:, 1])
         target = target[keep]
+        target[:,1:-1] = box_ops.box_xyxy_to_cxcywh(target[:,1:-1] / torch.tensor([w, h, w, h], dtype=torch.float32)) # Normalization 
+
+        categor_names = [self.cat_list[int(cls_id.item())] for cls_id in target[:,-1]]
 
         ori_img = img
 
@@ -497,8 +512,17 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         if self._transforms is not None:
             img,_ = self._transforms(img,None)
  
-
-        return img_size,img,target,ori_img
+        # generation caption instruction and target_class for the corresponding positive
+        if self.is_train:
+            caption_list = self.cat_list.copy()
+            random.shuffle(caption_list)
+            captions, cat2tokenspan = build_captions_and_token_span(caption_list, True)
+            positive_token = [cat2tokenspan[cls_name] for cls_name in categor_names]
+            positive_map = create_positive_map_from_span(self.tokenlizer(captions), positive_token) 
+            
+            return img_size,img,target,ori_img,captions,positive_map
+        else:
+            return img_size,img,target,ori_img
 
     
     @staticmethod
@@ -507,3 +531,11 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
         return img_size,images,instance_bboxes,ori_img
+
+    @staticmethod
+    def collate_fn_for_train(batch):
+        img_size,images,instance_bboxes,ori_img,captions,positive_maps = zip(*batch)
+        positive_map = torch.cat(positive_maps, dim=0)
+        for i,l in enumerate(instance_bboxes):
+            l[:, 0] = i 
+        return img_size,images,instance_bboxes,ori_img,list(captions),positive_map
