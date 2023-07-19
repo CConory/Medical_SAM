@@ -59,19 +59,19 @@ class HungarianMatcher(nn.Module):
 
             tgt_bbox = torch.cat([v[:,1:-1] for v in targets])
 
-            # Compute the token cost.
+            # Compute the token cost From GLIP : token_sigmoid_binary_focal_loss_v2.
             alpha = 0.25
             gamma =2.0
-            out_prob = out_prob[:,None,:].expand(bs*num_queries,num_gt,token_nums).flatten(0, 1)
-            positive_map = positive_map[None,:,:].expand(bs*num_queries,num_gt,token_nums).flatten(0, 1)
-            # From CLIP  TokenSigmoidFocalLoss
-            ce_loss = F.binary_cross_entropy_with_logits(out_prob, positive_map, reduction="none")
-            p_t = out_prob * positive_map + (1 - out_prob) * (1 - positive_map)
-            ce_loss = ce_loss * ((1 - p_t) ** gamma)
-            if alpha >= 0:
-                alpha_t = alpha * positive_map + (1 - alpha) * (1 - positive_map)
-                ce_loss = alpha_t * ce_loss
-            ce_loss = ce_loss.sum(-1).reshape(bs*num_queries,num_gt)
+            out_prob = out_prob[:,None,:].expand(bs*num_queries,num_gt,token_nums)
+            positive_map = positive_map[None,:,:].expand(bs*num_queries,num_gt,token_nums)
+
+            out_prob_neg_pos = torch.stack([1 - out_prob, out_prob], dim=-1) + 1e-8
+            weight = torch.pow(-out_prob_neg_pos + 1.0, gamma)
+            focal_zero = - weight[:, :, :, 0] * torch.log(out_prob_neg_pos[:, :, :, 0]) * (1 - alpha)
+            focal_one = - weight[:, :, :, 1] * torch.log(out_prob_neg_pos[:, :, :, 1]) * alpha 
+            focal = torch.stack([focal_zero, focal_one], dim=-1)
+            ce_loss = torch.gather(focal, index=positive_map.long().unsqueeze(-1), dim=-1).squeeze(-1)
+            ce_loss = ce_loss.sum(-1)
 
 
             # Compute the L1 cost between boxes

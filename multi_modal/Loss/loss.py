@@ -6,21 +6,112 @@ except:
     from matcher import build_matcher
 
 import torch
+import torch.nn.functional as F
+from torch import nn
 from groundingdino.util import box_ops
 # from torch.cuda.amp import custom_fwd
 
-INF = 1e8
+def token_sigmoid_binary_focal_loss_v2(pred_logits, targets, alpha, gamma, text_mask=None):
+    # Copy From From GLIP 
+    assert (targets.dim() == 3)
+    assert (pred_logits.dim() == 3)  # batch x from x to
+
+    if text_mask is not None:
+        assert (text_mask.dim() == 2)
+
+    # We convert everything into binary
+    out_prob = pred_logits.sigmoid()
+    out_prob_neg_pos = torch.stack([1 - out_prob, out_prob], dim=-1) + 1e-8  # batch x boxes x 256 x 2
+    weight = torch.pow(-out_prob_neg_pos + 1.0, gamma)
+
+    focal_zero = - weight[:, :, :, 0] * torch.log(out_prob_neg_pos[:, :, :, 0]) * (
+            1 - alpha)  # negative class
+    focal_one = - weight[:, :, :, 1] * torch.log(out_prob_neg_pos[:, :, :, 1]) * alpha  # positive class
+    focal = torch.stack([focal_zero, focal_one], dim=-1)
+    loss_ce = torch.gather(focal, index=targets.long().unsqueeze(-1), dim=-1)
+    return loss_ce
+
+class TokenSigmoidFocalLoss(nn.Module):
+    # copied from GLIP https://github.com/microsoft/GLIP
+    def __init__(self, alpha, gamma):
+        super(TokenSigmoidFocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, logits, targets, text_masks=None, version="binary", **kwargs):
+        if version == "binary":
+            loss_func = token_sigmoid_binary_focal_loss_v2
+        # elif version == "softmax":
+        #     loss_func = token_sigmoid_softmax_focal_loss
+        # elif version == "binaryv2":
+        #     loss_func = token_sigmoid_binary_focal_loss_v2
+        # else:
+        #     raise NotImplementedError
+        loss = loss_func(logits, targets, self.alpha, self.gamma, text_masks, **kwargs)
+        return loss.sum()
+
+# INF = 1e8 # Only used for GLIP prepare_target
 class ATSSLossComputation(torch.nn.Module):
     def __init__(self, args):
         super(ATSSLossComputation, self).__init__()
         self.args = args
         self.matcher = build_matcher(args)
+        self.token_loss_func = TokenSigmoidFocalLoss(args.FUSE_TOKEN_ALPHA,
+                                                         args.FUSE_TOKEN_GAMMA)
 
     # @custom_fwd(cast_inputs=torch.float32)
     def forward(self, outputs, targets,positive_map=None):
         indices = self.matcher(outputs, targets,positive_map)
-        # with torch.no_grad():
-        #     self.prepare_targets(outputs,targets,positive_map)
+
+
+        losses = {}
+        losses.update(self.loss_boxes(outputs, targets, indices))
+        losses.update(self.loss_token(outputs, positive_map, indices))
+        
+        return losses
+        
+        
+    
+    def loss_token(self,outputs, positive_map, indices,text_masks=None):
+
+        idx = self._get_src_permutation_idx(indices)
+        start_idx = 0
+        _positive_map = []
+        for _,i in indices:
+            end_idx = start_idx+len(i)
+            _positive_map.append(positive_map[start_idx:end_idx][i])
+            start_idx = end_idx
+
+        positive_map = torch.cat(_positive_map, dim=0)
+
+        token_labels = torch.zeros_like(outputs['pred_logits'])
+        token_labels[idx]= positive_map
+
+        loss_ce = self.token_loss_func(outputs['pred_logits'],token_labels,text_masks=text_masks,version="binary")
+        losses = {'loss_ce': loss_ce}
+        return losses
+
+    
+    def loss_boxes(self, outputs, targets, indices):
+
+        idx = self._get_src_permutation_idx(indices)
+        src_boxes = outputs['pred_boxes'][idx]
+        target_boxes = torch.cat([t[:,1:-1][i] for t, (_, i) in zip(targets, indices)], dim=0)
+        loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
+        losses = {}
+        losses['l1_bbox'] = loss_bbox.mean() * 4
+
+        loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(
+            box_ops.box_cxcywh_to_xyxy(src_boxes),
+            box_ops.box_cxcywh_to_xyxy(target_boxes)))
+        
+        losses['loss_giou'] = loss_giou.mean()
+        return losses
+    def _get_src_permutation_idx(self, indices):
+        # permute predictions following indices
+        batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
+        src_idx = torch.cat([src for (src, _) in indices])
+        return batch_idx, src_idx
 
     def prepare_targets(self,outputs, targets,positive_map= None):
 

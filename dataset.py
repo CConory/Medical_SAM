@@ -519,6 +519,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
             captions, cat2tokenspan = build_captions_and_token_span(caption_list, True)
             positive_token = [cat2tokenspan[cls_name] for cls_name in categor_names]
             positive_map = create_positive_map_from_span(self.tokenlizer(captions), positive_token) 
+            positive_map[positive_map!=0] =1
             
             return img_size,img,target,ori_img,captions,positive_map
         else:

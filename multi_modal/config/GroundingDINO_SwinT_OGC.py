@@ -56,3 +56,31 @@ atss_topk = 100  # 用于统计 距离匹配前 100 个 predn 的 iou 的均值�
 set_cost_class = 2.0
 set_cost_bbox = 5.0
 set_cost_giou = 2.0
+FUSE_TOKEN_ALPHA = 0.25
+FUSE_TOKEN_GAMMA = 2.0
+
+# Optimizer
+optimizer = "ADAMW"
+base_lr = 1.0e-5
+weight_decay = 0.0001
+weight_decay_bias = 0.0
+bias_lr_factor = 2
+weight_decay_norm_factor = 1.0
+gridient_clip_type = "full_model"
+gridient_clip_value = 1.0
+gradient_clip_enabled = True
+gradient_clip_norm_type = 2.0
+
+# Learning_rate_schedule
+lr_use_cosine = False
+lr_use_autostep = False
+max_epoch = 10
+max_iter = None
+schedule_gamma = 0.1
+warmup_factor =  0.001
+warmup_iters = None
+warmup_method = "linear"
+warmup_min_lr = 1.0e-6
+warmup_step_patience = 5 # for autostep
+lr_steps = [0.67,0.89]
+
