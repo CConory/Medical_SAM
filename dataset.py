@@ -433,9 +433,15 @@ class All_boxes_Dataset(Dataset):
         return batched_input, masks,image_path
 
 class Medical_Detecton(All_boxes_Dataset):
-    def __init__(self, json_path,split,device,transforms=None,tokenizer=None):
+    def __init__(self, json_path,split,device,transforms=None,is_train=False,tokenizer=None):
         super().__init__(json_path, split,device)
         self._transforms = transforms
+        self.is_train = is_train
+        dataset_name = json_path.split("/")[-2]
+        self.cat_list = ["arterioles, capillaries and venules tissue","normal_cell","cell","tissue", "glomerulus tissue","unsure tissue"]
+        if self.is_train:
+            assert tokenizer is not None
+            self.tokenlizer = tokenizer
     def __getitem__(self, index):
         file_name = self.file_names[index]
         suffix = os.path.splitext(file_name)[1]
@@ -446,7 +452,16 @@ class Medical_Detecton(All_boxes_Dataset):
 
         mask = np.load(mask_path,allow_pickle=True)
         mask = mask.astype(np.int32)
-        instance_bboxes = mask_2_boxes(mask)
+        target = mask_2_boxes(mask)
+        target = torch.tensor(target)
+
+        target[:, 1:-1:2].clamp_(min=0, max=w)
+        target[:, 2:-1:2].clamp_(min=0, max=h)
+        keep = (target[:, 4] > target[:, 2]) & (target[:, 3] > target[:, 1])
+        target = target[keep]
+        target[:,1:-1] = box_ops.box_xyxy_to_cxcywh(target[:,1:-1] / torch.tensor([w, h, w, h], dtype=torch.float32)) # Normalization 
+
+        categor_names = [self.cat_list[int(cls_id.item())] for cls_id in target[:,-1]]
 
         # plt.figure(figsize=(10,10))
         # plt.imshow(image)
@@ -457,15 +472,50 @@ class Medical_Detecton(All_boxes_Dataset):
         if self._transforms is not None:
             img,_ = self._transforms(image,None)
 
-        return img_size,img,torch.tensor(instance_bboxes),image
+        # generation caption instruction and target_class for the corresponding positive
+        caption_list = self.cat_list.copy() 
+        if self.is_train:
+            all_category_idx = list(range(len(caption_list))) #Used to calculate the scores of the shuffle category_id_list
+            random.shuffle(all_category_idx)
+            caption_list = [ caption_list[c_id] for c_id in all_category_idx]
+            post_process_information = {"idx":all_category_idx}
+        captions, cat2tokenspan = build_captions_and_token_span(caption_list, True)
+
+        if self.is_train:
+            positive_token = [cat2tokenspan[cls_name] for cls_name in categor_names]
+            one_hot_positive_map = create_positive_map_from_span(self.tokenlizer(captions), positive_token)  #Used to train
+            one_hot_positive_map[one_hot_positive_map!=0] =1
+
+            '''
+            用于可视化不同语序的文本输入 instruction, 转换成标签对应关系是否正确。
+            '''
+            visualization_during_train = False
+            if visualization_during_train:
+                tokenspanlist = [cat2tokenspan[cat] for cat in caption_list]
+                positive_map = create_positive_map_from_span(self.tokenlizer(captions), tokenspanlist) #Used to post-porcessing
+                post_process_information["map"]= positive_map
+            else:
+                post_process_information = {}
+            
+            return img_size,img,target,image,captions,one_hot_positive_map,post_process_information
+        else:
+            return img_size,img,target,image,captions
 
 
     @staticmethod
     def collate_fn(batch):
-        img_size,images,instance_bboxes,ori_image = zip(*batch)
+        img_size,images,instance_bboxes,ori_img,captions = zip(*batch)
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
-        return img_size,images,instance_bboxes,ori_image
+        return img_size,images,instance_bboxes,ori_img,list(captions)
+
+    @staticmethod
+    def collate_fn_for_train(batch):
+        img_size,images,instance_bboxes,ori_img,captions,one_hot_positive_map,post_process_information = zip(*batch)
+        one_hot_positive_map = torch.cat(one_hot_positive_map, dim=0)
+        for i,l in enumerate(instance_bboxes):
+            l[:, 0] = i 
+        return img_size,images,instance_bboxes,ori_img,list(captions),one_hot_positive_map,post_process_information
 
 class CocoDetection(torchvision.datasets.CocoDetection):
     def __init__(self, img_folder, ann_file, transforms,is_train=False,tokenizer=None):

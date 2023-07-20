@@ -26,6 +26,7 @@ from tqdm import tqdm
 import argparse
 import numpy as np 
 import wandb
+import shutil
 from torch.cuda.amp import GradScaler
 scaler = GradScaler()
 
@@ -54,15 +55,15 @@ def build_dataset_and_dataloader(cfg,args,is_train=False):
         dataset_name = args.dataset
         dataset_dir = os.path.join(dataset_root_dir,dataset_name)
         dataset_type = "train" if is_train else "valid"
-        dataset = Medical_Detecton(os.path.join(dataset_dir,"data_split.json"),dataset_type,device,transform)
-        collate_fn = Medical_Detecton.collate_fn
+        dataset = Medical_Detecton(os.path.join(dataset_dir,"data_split.json"),dataset_type,device,transform,is_train=is_train,tokenizer=tokenlizer)
+        collate_fn = Medical_Detecton.collate_fn_for_train if is_train else Medical_Detecton.collate_fn
     
     shuffle = True if is_train else False
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=4,
         num_workers=4,
-        shuffle=False,
+        shuffle=shuffle,
         pin_memory=False,
         collate_fn = collate_fn,
         drop_last=False
@@ -97,6 +98,7 @@ if __name__ == '__main__':
     config_file_path = "./config/GroundingDINO_SwinT_OGC.py"
     checkpoint_path = "/userhome/cs2/kuangww/GroundingDINO/weights/groundingdino_swint_ogc.pth"
     cfg = SLConfig.fromfile(config_file_path)
+    shutil.copy(config_file_path,os.path.join(args.output_dir,os.path.basename(config_file_path)))
 
 
     device = "cuda"
@@ -110,7 +112,7 @@ if __name__ == '__main__':
     if cfg.max_iter is None:
         cfg.max_iter = (len(train_loader)//cfg.gradient_calculate_step)*cfg.max_epoch
     if cfg.warmup_iters is None:
-        cfg.warmup_iters = max(round(3 * len(train_loader)), 2000)
+        cfg.warmup_iters = max(round(3 * len(train_loader)), 2000)//cfg.gradient_calculate_step
 
 
     #Construct model
@@ -168,7 +170,7 @@ if __name__ == '__main__':
         }
         print(('\n' + '%10s' * 3) % ('epoch', 'loss', 'gpu'))
         
-        progress_bar = tqdm(enumerate(train_loader), total=nb )
+        progress_bar = tqdm(enumerate(train_loader), total=nb)
         train_stats = []
 
         # Training process
@@ -186,8 +188,9 @@ if __name__ == '__main__':
             for key,value in loss_dict.items():
                 train_log_loss[f"loss/train/{key}"]+=value
             total_loss += sum_loss.data
+            
 
-
+            lr = optimizer.param_groups[0]['lr']
             
 
             if ni - last_opt_step >= cfg.gradient_calculate_step:
@@ -200,6 +203,9 @@ if __name__ == '__main__':
             mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)
             s = ('%10s' + '%10.4g' + '%10s') % ('%g/%g' % (epoch + 1, cfg.max_epoch), total_loss / (i + 1), mem)
             progress_bar.set_description(s)
+
+            
+
 
             imgs_size = torch.stack(imgs_size,dim=0).to(device)
             # targets cxcywh -> original image xxyy
@@ -216,9 +222,20 @@ if __name__ == '__main__':
 
             # 可视化训练过程中标签对不对, 保存前10个batch的第一张图片:
             if args.wandb_log and ni<10 :
-                vis_pred = predn[0][predn[0][:,-2]>0.3].cpu().numpy()
-                vis_img = visualization_bboxes(ori_img[0], targets[0][:,1:].cpu().numpy(), predn =[],category_dict)
-                wandb.log({"visuliaztion/train": vis_img})
+                # vis_pred = predn[0][predn[0][:,-2]>0.3].cpu().numpy() # 输出预测结果的可视化
+                vis_img = visualization_bboxes(ori_img[0], targets[0][:,1:].cpu().numpy(), predn =[],category_dict=category_dict)
+            else:
+                vis_img = None
+            
+            if args.wandb_log:
+                log_result = {
+                    "loss/train/total":total_loss / (i + 1),
+                    "lr": lr}
+                for key,value in train_log_loss.items():
+                    log_result[key] = train_log_loss[key]/(i + 1)
+                if vis_img:
+                    log_result.update({"visualization/labels": vis_img})
+                wandb.log(log_result)
 
         # train_mean_AP = 0
         # train_stats = [np.concatenate(x, 0) for x in zip(*train_stats)] 
@@ -245,6 +262,18 @@ if __name__ == '__main__':
                 for bs_id in range(len(targets)):
                     targets[bs_id][:,1:-1] = box_ops.box_cxcywh_to_xyxy(targets[bs_id][:,1:-1]) * scale_fct[bs_id]
                 val_stats.extend(processs_batch(predn,targets,args.mAP_threshold))
+            
+            mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)
+            s = ('%10s' + '%10s') % ('%g/%g' % (epoch + 1, cfg.max_epoch), mem)
+            progress_bar.set_description(s)
+        
+        # Visulization the valid prediction result
+        visulization_imgs = []
+        for bs_id in range(len(images)):
+            vis_pred = predn[bs_id][predn[bs_id][:,-2]>0.3].cpu().numpy()
+            visulization_imgs.append(visualization_bboxes(ori_img[bs_id], targets[bs_id][:,1:].cpu().numpy(), predn =vis_pred,category_dict=category_dict))
+
+
                 
         val_stats = [np.concatenate(x, 0) for x in zip(*val_stats)] 
         valid_mean_AP = 0
@@ -258,17 +287,16 @@ if __name__ == '__main__':
             save = {'state_dict': model.state_dict()}
             torch.save(save, os.path.join(args.output_dir, 'best.pth'))
         else:
+            patience+=1
             save = {'state_dict': model.state_dict()}
             torch.save(save, os.path.join(args.output_dir, 'last.pth'))
         
-        for key,value in train_log_loss.items():
-            train_log_loss[key]/=len(train_loader)
+        
         if args.wandb_log:
             log_result = {
-                "train/loss":total_loss/len(train_loader),
                 f"val/mAP_{int(args.mAP_threshold*100)}":valid_mean_AP,
+                "visualization/valid_result":visulization_imgs
                 }
-            log_result.update(train_log_loss)
             wandb.log(log_result)
 
 

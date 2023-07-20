@@ -45,8 +45,8 @@ sub_sentence_present = True
 # For Finetune
 is_train = True
 language_backbone_freeze = True
-image_backbone_freeze = True
-transformer_freeze = True
+image_backbone_freeze = False
+transformer_freeze = False
 box_cls_embed_freeze = False
 
 # For finetune loss
@@ -64,7 +64,7 @@ FUSE_TOKEN_GAMMA = 2.0
 
 # Optimizer
 optimizer = "ADAMW"
-base_lr = 1.0e-5
+base_lr = 1.0e-3
 weight_decay = 0.0001
 weight_decay_bias = 0.0
 bias_lr_factor = 2
@@ -75,7 +75,7 @@ gradient_clip_enabled = True
 gradient_clip_norm_type = 2.0
 
 # Learning_rate_schedule
-lr_use_cosine = False
+lr_use_cosine = True
 lr_use_autostep = False
 max_epoch = 10
 max_iter = None
@@ -88,5 +88,5 @@ warmup_step_patience = 5 # for autostep
 lr_steps = [0.67,0.89]
 
 # others:
-gradient_calculate_step = 1
+gradient_calculate_step = 8
 
