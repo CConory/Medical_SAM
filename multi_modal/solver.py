@@ -74,7 +74,7 @@ def make_lr_scheduler(cfg, optimizer):
             optimizer,
             max_iters,
             cfg.schedule_gamma,
-            warmup_factor=cfg.schedule_gamma,,
+            warmup_factor=cfg.schedule_gamma,
             warmup_iters=cfg.warmup_iters,
             warmup_method=cfg.warmup_method,
             eta_min=cfg.warmup_min_lr,

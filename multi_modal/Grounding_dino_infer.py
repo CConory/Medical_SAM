@@ -43,7 +43,7 @@ class PostProcessGrounding(nn.Module):
         self.num_select = num_select
         # captions 拼接成一个句子， cat2tokenspan : captions 在句子中的起始位置
         captions, cat2tokenspan = build_captions_and_token_span(category_list, True)
-        tokenspanlist = [cat2tokenspan[cat] for cat in cat_list]
+        tokenspanlist = [cat2tokenspan[cat] for cat in category_list]
         # caption 对应的 token 的 position mask. [0,7] 代表了 “love . e” 对应的是同一个 caption，
         # 则该caption 对应 对应了 两个 token ： love 以及 eight.
         # 设置了 最多有 256 类 token 来表示 caption。
@@ -53,26 +53,39 @@ class PostProcessGrounding(nn.Module):
         # Small Dog 则是 [0.5,0,0.5]
         self.positive_map = create_positive_map_from_span(tokenlizer(captions), tokenspanlist) # COCO 只统计了其中80个类别
     @torch.no_grad()
-    def forward(self, outputs, target_sizes, not_to_xyxy=False):
+    def forward(self, outputs, target_sizes,post_information=None):
         """ Perform the computation
         Parameters:
             outputs: raw outputs of the model
             target_sizes: tensor of dimension [batch_size x 2] containing the size of each images of the batch
                           For evaluation, this must be the original image size (before any data augmentation)
                           For visualization, this should be the image size after data augment, but before padding
+            post_information : 用于 instruction 打乱后， 各部分token对应不同类别 id 的 映射
         """
         out_logits, out_bbox = outputs['pred_logits'], outputs['pred_boxes']
         prob_to_token = out_logits.sigmoid()
-        pos_maps = self.positive_map.to(prob_to_token.device)
-
-        # (bs, 900, 256) @ (80, 256).T -> (bs, 900, 80) # 900 means the max bboxes
-        # [bs,i,j] 第 i 个 bbox 对 j category 的 scores， 是multi-label， 即每一类别的positive的probability
-        prob_to_label = prob_to_token @ pos_maps.T
+        if post_information:
+            prob_to_label = []
+            for bs_id, post_information_per_img in enumerate(post_information):
+                pos_maps = post_information_per_img['map'].to(prob_to_token.device)
+                prob_to_label.append((prob_to_token[bs_id]@ pos_maps.T)[None,...])
+            prob_to_label = torch.cat(prob_to_label,dim=0)
+        else:
+            pos_maps = self.positive_map.to(prob_to_token.device)
+            # (bs, 900, 256) @ (80, 256).T -> (bs, 900, 80) # 900 means the max bboxes
+            # [bs,i,j] 第 i 个 bbox 对 j category 的 scores， 是multi-label， 即每一类别的positive的probability
+            prob_to_label = prob_to_token @ pos_maps.T
 
         topk_values, topk_indexes = torch.topk(prob_to_label.view(out_logits.shape[0], -1), self.num_select, dim=1) # 同一个bbox 可能对应不同的类别
         scores = topk_values
         topk_boxes = topk_indexes // prob_to_label.shape[2]
         labels = topk_indexes % prob_to_label.shape[2]
+
+        if post_information is not None: #categroy_idx 映射
+            for bs_id, post_information_per_img in enumerate(post_information):
+                idx = torch.tensor(post_information_per_img['idx']).to(prob_to_token.device)
+                labels[bs_id] = idx[labels[bs_id]]
+
 
         boxes = box_ops.box_cxcywh_to_xyxy(out_bbox) #坐标转换
         boxes = torch.gather( boxes, 1, topk_boxes.unsqueeze(-1).repeat(1, 1, 4))
@@ -184,51 +197,32 @@ if __name__ == '__main__':
     vis_count = 0
     max_vis = 9
 
-    # For trainer:
-    criterion = ATSSLossComputation(cfg)
-    for (imgs_size, images,targets, ori_img, captions, positive_map) in tqdm(dataloader):
-        # tokenized = tokenlizer.batch_encode_plus(list(captions), padding="longest", return_tensors="pt")
 
+    for (imgs_size, images,targets, ori_img,_) in tqdm(dataloader):
+        # 会按照batch最大的width 跟height 对每张图像 进行 padding
         bs = len(imgs_size)
-        targets = [tmp.to(device) for tmp in targets]
-        positive_map = positive_map.to(device)
-
         inputs = nested_tensor_from_tensor_list(images) #Got inputs.tensors & inputs.mask
         inputs = inputs.to(device)
-
-        outputs = model(inputs, captions=captions)
-        print(outputs["pred_logits"].shape,outputs["pred_boxes"].shape)
-        criterion(outputs,targets,positive_map)
-        import pdb;pdb.set_trace()
-
-        # TODO: match pred_boxes with targets
-        # TODO: Calculate the Loss
-
-    # for (imgs_size, images,targets, ori_img) in tqdm(dataloader):
-    #     # 会按照batch最大的width 跟height 对每张图像 进行 padding
-    #     bs = len(imgs_size)
-    #     inputs = nested_tensor_from_tensor_list(images) #Got inputs.tensors & inputs.mask
-    #     inputs = inputs.to(device)
-    #     with torch.no_grad():
-    #         # batch_size >1 , 应该 把 inputs.mask 也一起传进去
-    #         outputs = model(inputs, captions=[caption]*bs)
-    #         imgs_size = torch.stack(imgs_size,dim=0).to(device)
-    #         predn = postprocessor(outputs, imgs_size) #results 映射回原图大小， 注意 targets['bbox]是在Transform后的尺寸。
+        with torch.no_grad():
+            # batch_size >1 , 应该 把 inputs.mask 也一起传进去
+            outputs = model(inputs, captions=[caption]*bs)
+            imgs_size = torch.stack(imgs_size,dim=0).to(device)
+            predn = postprocessor(outputs, imgs_size) #results 映射回原图大小， 注意 targets['bbox]是在Transform后的尺寸。
         
-    #     # Logger_visualization
-    #     if vis_count<max_vis and args.wandb_log:
-    #         vis_pred = predn[0][predn[0][:,-2]>0.1].cpu().numpy()
-    #         visulization_imgs.append(visualization_bboxes(ori_img[0], targets[0][:,1:].numpy(), vis_pred,category_dict))
-    #         vis_count += 1
+        # Logger_visualization
+        if vis_count<max_vis and args.wandb_log:
+            vis_pred = predn[0][predn[0][:,-2]>0.1].cpu().numpy()
+            visulization_imgs.append(visualization_bboxes(ori_img[0], targets[0][:,1:].numpy(), vis_pred,category_dict))
+            vis_count += 1
 
-    #     stats.extend(processs_batch(predn,targets,mAP_threshold))
+        stats.extend(processs_batch(predn,targets,mAP_threshold))
 
-    # stats = [np.concatenate(x, 0) for x in zip(*stats)] 
-    # if len(stats) and stats[0].any():
-    #     result = ap_per_class(*stats)
+    stats = [np.concatenate(x, 0) for x in zip(*stats)] 
+    if len(stats) and stats[0].any():
+        result = ap_per_class(*stats)
     
-    # if args.wandb_log:
-    #     wandb_logger(result,visulization_imgs,args,cat_list)
+    if args.wandb_log:
+        wandb_logger(result,visulization_imgs,args,cat_list)
         
         
         

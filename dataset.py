@@ -477,9 +477,10 @@ class CocoDetection(torchvision.datasets.CocoDetection):
 
         self.is_train = is_train
 
+        category_dict = self.coco.dataset['categories']
+        self.cat_list = [item['name'] for item in category_dict]
+
         if self.is_train:
-            category_dict = self.coco.dataset['categories']
-            self.cat_list = [item['name'] for item in category_dict]
             assert tokenizer is not None
             self.tokenlizer = tokenizer
 
@@ -511,32 +512,48 @@ class CocoDetection(torchvision.datasets.CocoDetection):
 
         if self._transforms is not None:
             img,_ = self._transforms(img,None)
- 
+
+
         # generation caption instruction and target_class for the corresponding positive
+        caption_list = self.cat_list.copy()
         if self.is_train:
-            caption_list = self.cat_list.copy()
-            random.shuffle(caption_list)
-            captions, cat2tokenspan = build_captions_and_token_span(caption_list, True)
+            all_category_idx = list(range(len(caption_list))) #Used to calculate the scores of the shuffle category_id_list
+            random.shuffle(all_category_idx)
+            caption_list = [ caption_list[c_id] for c_id in all_category_idx]
+            post_process_information = {"idx":all_category_idx}
+        captions, cat2tokenspan = build_captions_and_token_span(caption_list, True)
+        
+        if self.is_train:
             positive_token = [cat2tokenspan[cls_name] for cls_name in categor_names]
-            positive_map = create_positive_map_from_span(self.tokenlizer(captions), positive_token) 
-            positive_map[positive_map!=0] =1
-            
-            return img_size,img,target,ori_img,captions,positive_map
+            one_hot_positive_map = create_positive_map_from_span(self.tokenlizer(captions), positive_token)  #Used to train
+            one_hot_positive_map[one_hot_positive_map!=0] =1
+
+            '''
+            用于可视化不同语序的文本输入 instruction, 转换成标签对应关系是否正确。
+            '''
+            visualization_during_train = False
+            if visualization_during_train:
+                tokenspanlist = [cat2tokenspan[cat] for cat in caption_list]
+                positive_map = create_positive_map_from_span(self.tokenlizer(captions), tokenspanlist) #Used to post-porcessing
+                post_process_information["map"]= positive_map
+            else:
+                post_process_information = {}
+            return img_size,img,target,ori_img,captions,one_hot_positive_map,post_process_information
         else:
-            return img_size,img,target,ori_img
+            return img_size,img,target,ori_img,captions
 
     
     @staticmethod
     def collate_fn(batch):
-        img_size,images,instance_bboxes,ori_img = zip(*batch)
+        img_size,images,instance_bboxes,ori_img,captions = zip(*batch)
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
-        return img_size,images,instance_bboxes,ori_img
+        return img_size,images,instance_bboxes,ori_img,list(captions)
 
     @staticmethod
     def collate_fn_for_train(batch):
-        img_size,images,instance_bboxes,ori_img,captions,positive_maps = zip(*batch)
-        positive_map = torch.cat(positive_maps, dim=0)
+        img_size,images,instance_bboxes,ori_img,captions,one_hot_positive_map,post_process_information = zip(*batch)
+        one_hot_positive_map = torch.cat(one_hot_positive_map, dim=0)
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
-        return img_size,images,instance_bboxes,ori_img,list(captions),positive_map
+        return img_size,images,instance_bboxes,ori_img,list(captions),one_hot_positive_map,post_process_information

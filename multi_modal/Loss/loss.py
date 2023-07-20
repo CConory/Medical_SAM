@@ -68,7 +68,9 @@ class ATSSLossComputation(torch.nn.Module):
         losses.update(self.loss_boxes(outputs, targets, indices))
         losses.update(self.loss_token(outputs, positive_map, indices))
         
-        return losses
+        sum_loss = sum([value * self.args[f"{key}_weight"] for key,value in losses.items()])
+        losses = {key:value.data for key,value in losses.items()}
+        return losses,sum_loss
         
         
     
