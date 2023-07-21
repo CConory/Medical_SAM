@@ -27,19 +27,23 @@ def get_path(dataset_dir,file_name,suffix):
 
 def mask_2_boxes(mask):
     mask = mask.astype(np.int32)
-    semantic_mask = mask[...,1]==1 # only for vessels
+
+    
+
+    instance_bboxes = []
     instances_mask = mask[...,0]
     max_instance_nums = np.max(instances_mask)
-    instance_bboxes = []
-    for instance_id in range(1,max_instance_nums+1):
-        instance =  ((instances_mask==instance_id) * semantic_mask).astype(np.uint8)*255
-        # cv2.imwrite("./tmp.jpg",instance)
-        num_labels, labels = cv2.connectedComponents(instance)
-        for i in range(1,num_labels):
-            c1 = cv2.boundingRect((labels==i).astype(np.uint8)*255)
-            if c1[2]<=0 or c1[3]<=0:
-                continue
-            instance_bboxes.append([0,c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3],0]) # bs_id, x1y1x2y2, class_index 
+    max_category_idx = np.max(mask[...,1])
+    for category_idx in range(max_category_idx): #[0,1,2,3...n-1]
+        semantic_mask = mask[...,1]== category_idx+1 # [1,2,3,....n]
+        for instance_id in range(1,max_instance_nums+1):
+            instance =  ((instances_mask==instance_id) * semantic_mask).astype(np.uint8)*255
+            num_labels, labels = cv2.connectedComponents(instance)
+            for i in range(1,num_labels):
+                c1 = cv2.boundingRect((labels==i).astype(np.uint8)*255)
+                if c1[2]<=0 or c1[3]<=0:
+                    continue
+                instance_bboxes.append([0,c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3],category_idx]) # bs_id, x1y1x2y2, class_index 
     if len(instance_bboxes):
         result = np.array(instance_bboxes,dtype=np.float32)
     else:
@@ -438,7 +442,25 @@ class Medical_Detecton(All_boxes_Dataset):
         self._transforms = transforms
         self.is_train = is_train
         dataset_name = json_path.split("/")[-2]
-        self.cat_list = ["arterioles, capillaries and venules tissue","normal_cell","cell","tissue", "glomerulus tissue","unsure tissue"]
+
+        '''
+            能让类别跟对应的instruction区分开，并且在后处理的时候能关联起来
+        '''
+        # self.cat_list = ["vessel","glomerulus","unsure"]
+        self.cat_list = ["vessel"]
+        instruction = [
+                ["arterioles, capillaries or venules tissue"], # for category: 0
+                ["glomerulus tissue"], #for category:1
+                ["unsure tissue","unsure"], # for category:2
+                ["normal_cell","cell","tissue"]
+            ] # for others
+        self.instruction = []
+        self.cat_2_instruction = {}
+        for instr_id in range(len(instruction)):
+            self.instruction.extend(instruction[instr_id])
+            if instr_id < len(self.cat_list):
+                self.cat_2_instruction[self.cat_list[instr_id]] = instruction[instr_id]
+        
         if self.is_train:
             assert tokenizer is not None
             self.tokenlizer = tokenizer
@@ -473,31 +495,23 @@ class Medical_Detecton(All_boxes_Dataset):
             img,_ = self._transforms(image,None)
 
         # generation caption instruction and target_class for the corresponding positive
-        caption_list = self.cat_list.copy() 
+        instruction = self.instruction.copy() 
         if self.is_train:
-            all_category_idx = list(range(len(caption_list))) #Used to calculate the scores of the shuffle category_id_list
+            all_category_idx = list(range(len(instruction))) #Used to calculate the scores of the shuffle category_id_list
             random.shuffle(all_category_idx)
-            caption_list = [ caption_list[c_id] for c_id in all_category_idx]
-            post_process_information = {"idx":all_category_idx}
-        captions, cat2tokenspan = build_captions_and_token_span(caption_list, True)
+            instruction = [ instruction[c_id] for c_id in all_category_idx]
+        captions, cat2tokenspan = build_captions_and_token_span(instruction, True)
 
         if self.is_train:
-            positive_token = [cat2tokenspan[cls_name] for cls_name in categor_names]
-            one_hot_positive_map = create_positive_map_from_span(self.tokenlizer(captions), positive_token)  #Used to train
+            positive_tokens = []
+            for cls_name in categor_names:
+                positive_token = []
+                for per_instruction_of_cls in self.cat_2_instruction[cls_name]:
+                    positive_token.extend(cat2tokenspan[per_instruction_of_cls])
+                positive_tokens.append(positive_token)
+            one_hot_positive_map = create_positive_map_from_span(self.tokenlizer(captions), positive_tokens)  #Used to train
             one_hot_positive_map[one_hot_positive_map!=0] =1
-
-            '''
-            用于可视化不同语序的文本输入 instruction, 转换成标签对应关系是否正确。
-            '''
-            visualization_during_train = False
-            if visualization_during_train:
-                tokenspanlist = [cat2tokenspan[cat] for cat in caption_list]
-                positive_map = create_positive_map_from_span(self.tokenlizer(captions), tokenspanlist) #Used to post-porcessing
-                post_process_information["map"]= positive_map
-            else:
-                post_process_information = {}
-            
-            return img_size,img,target,image,captions,one_hot_positive_map,post_process_information
+            return img_size,img,target,image,captions,one_hot_positive_map,instruction
         else:
             return img_size,img,target,image,captions
 
@@ -511,11 +525,11 @@ class Medical_Detecton(All_boxes_Dataset):
 
     @staticmethod
     def collate_fn_for_train(batch):
-        img_size,images,instance_bboxes,ori_img,captions,one_hot_positive_map,post_process_information = zip(*batch)
+        img_size,images,instance_bboxes,ori_img,captions,one_hot_positive_map,instruction = zip(*batch)
         one_hot_positive_map = torch.cat(one_hot_positive_map, dim=0)
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
-        return img_size,images,instance_bboxes,ori_img,list(captions),one_hot_positive_map,post_process_information
+        return img_size,images,instance_bboxes,ori_img,list(captions),one_hot_positive_map,instruction
 
 class CocoDetection(torchvision.datasets.CocoDetection):
     def __init__(self, img_folder, ann_file, transforms,is_train=False,tokenizer=None):
