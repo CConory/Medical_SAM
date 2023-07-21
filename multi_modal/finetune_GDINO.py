@@ -62,7 +62,7 @@ def build_dataset_and_dataloader(cfg,args,is_train=False):
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=4,
-        num_workers=4,
+        num_workers=0,
         shuffle=shuffle,
         pin_memory=False,
         collate_fn = collate_fn,
@@ -112,7 +112,7 @@ if __name__ == '__main__':
     if cfg.max_iter is None:
         cfg.max_iter = (len(train_loader)//cfg.gradient_calculate_step)*cfg.max_epoch
     if cfg.warmup_iters is None:
-        cfg.warmup_iters = max(round(3 * len(train_loader)), 2000)//cfg.gradient_calculate_step
+        cfg.warmup_iters = min(round(3 * len(train_loader)), 2000)//cfg.gradient_calculate_step
 
 
     #Construct model
@@ -148,7 +148,10 @@ if __name__ == '__main__':
     # Construct the Post-processing for the predn of training or evaluate processing
     tokenlizer = get_tokenlizer.get_tokenlizer(cfg.text_encoder_type)
     postprocessor = PostProcessGrounding(
-        category_list=trian_dataset.cat_list, tokenlizer=tokenlizer)
+        category_list=trian_dataset.cat_list,
+        instruction = trian_dataset.instruction,
+        cat_2_instruction =trian_dataset.cat_2_instruction,
+        tokenlizer=tokenlizer)
 
     # gradient_accumlate
     nb = len(train_loader)
@@ -164,9 +167,9 @@ if __name__ == '__main__':
         total_loss = 0.
 
         train_log_loss = {
-            "loss/train/loss_ce":0,
-            "loss/train/l1_bbox":0,
-            "loss/train/loss_giou":0
+            "train/loss/loss_ce":0,
+            "train/loss/l1_bbox":0,
+            "train/loss/loss_giou":0
         }
         print(('\n' + '%10s' * 3) % ('epoch', 'loss', 'gpu'))
         
@@ -174,7 +177,7 @@ if __name__ == '__main__':
         train_stats = []
 
         # Training process
-        for i, (imgs_size, images,targets, ori_img, captions, one_hot_positive_map,post_information) in progress_bar:
+        for i, (imgs_size, images,targets, ori_img, captions, one_hot_positive_map,instruction) in progress_bar:
             
             ni = i + nb * epoch  #num_iteration
             targets = [tmp.to(device) for tmp in targets]
@@ -186,7 +189,7 @@ if __name__ == '__main__':
             scaler.scale(sum_loss).backward()
 
             for key,value in loss_dict.items():
-                train_log_loss[f"loss/train/{key}"]+=value
+                train_log_loss[f"train/loss/{key}"]+=value
             total_loss += sum_loss.data
             
 
@@ -217,7 +220,7 @@ if __name__ == '__main__':
 
             # Preprocess for the predn and get the evaluation result for the training dataset
             # with torch.no_grad():
-            #     predn = postprocessor(outputs, imgs_size,post_information)
+            #     predn = postprocessor(outputs, imgs_size,instruction)
             #     train_stats.extend(processs_batch(predn,targets,args.mAP_threshold))
 
             # 可视化训练过程中标签对不对, 保存前10个batch的第一张图片:
@@ -229,13 +232,15 @@ if __name__ == '__main__':
             
             if args.wandb_log:
                 log_result = {
-                    "loss/train/total":total_loss / (i + 1),
-                    "lr": lr}
+                    "train/loss/total":total_loss / (i + 1),
+                    "train/lr": lr}
                 for key,value in train_log_loss.items():
                     log_result[key] = train_log_loss[key]/(i + 1)
                 if vis_img:
                     log_result.update({"visualization/labels": vis_img})
                 wandb.log(log_result)
+            
+            break
 
         # train_mean_AP = 0
         # train_stats = [np.concatenate(x, 0) for x in zip(*train_stats)] 

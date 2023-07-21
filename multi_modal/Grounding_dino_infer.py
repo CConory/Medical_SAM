@@ -38,12 +38,27 @@ def load_model(model_config_path: str, model_checkpoint_path: str, device: str =
     return model
 
 class PostProcessGrounding(nn.Module):
-    def __init__(self, num_select=300,category_list=None, tokenlizer=None) -> None:
+    def __init__(self, num_select=300,category_list=None,instruction=None,cat_2_instruction=None, tokenlizer=None) -> None:
         super().__init__()
         self.num_select = num_select
         # captions 拼接成一个句子， cat2tokenspan : captions 在句子中的起始位置
-        captions, cat2tokenspan = build_captions_and_token_span(category_list, True)
-        tokenspanlist = [cat2tokenspan[cat] for cat in category_list]
+        
+        self.category_list = category_list
+        self.cat_2_instruction = cat_2_instruction
+        self.tokenlizer = tokenlizer
+
+        if cat_2_instruction is None:
+            captions, cat2tokenspan = build_captions_and_token_span(category_list, True)
+            tokenspanlist = [cat2tokenspan[cat] for cat in category_list]
+
+        else:
+            captions, cat2tokenspan = build_captions_and_token_span(instruction, True)
+            tokenspanlist = []
+            for cls_name in category_list:
+                positive_token = []
+                for per_instruction_of_cls in cat_2_instruction[cls_name]:
+                    positive_token.extend(cat2tokenspan[per_instruction_of_cls])
+                tokenspanlist.append(positive_token)
         # caption 对应的 token 的 position mask. [0,7] 代表了 “love . e” 对应的是同一个 caption，
         # 则该caption 对应 对应了 两个 token ： love 以及 eight.
         # 设置了 最多有 256 类 token 来表示 caption。
@@ -53,7 +68,7 @@ class PostProcessGrounding(nn.Module):
         # Small Dog 则是 [0.5,0,0.5]
         self.positive_map = create_positive_map_from_span(tokenlizer(captions), tokenspanlist) # COCO 只统计了其中80个类别
     @torch.no_grad()
-    def forward(self, outputs, target_sizes,post_information=None):
+    def forward(self, outputs, target_sizes,instruction=None):
         """ Perform the computation
         Parameters:
             outputs: raw outputs of the model
@@ -64,27 +79,27 @@ class PostProcessGrounding(nn.Module):
         """
         out_logits, out_bbox = outputs['pred_logits'], outputs['pred_boxes']
         prob_to_token = out_logits.sigmoid()
-        if post_information:
-            prob_to_label = []
-            for bs_id, post_information_per_img in enumerate(post_information):
-                pos_maps = post_information_per_img['map'].to(prob_to_token.device)
-                prob_to_label.append((prob_to_token[bs_id]@ pos_maps.T)[None,...])
-            prob_to_label = torch.cat(prob_to_label,dim=0)
+        if instruction:
+            captions, cat2tokenspan = build_captions_and_token_span(instruction, True)
+            tokenspanlist = []
+            for cls_name in self.category_list:
+                positive_token = []
+                for per_instruction_of_cls in self.cat_2_instruction[cls_name]:
+                    positive_token.extend(cat2tokenspan[per_instruction_of_cls])
+                tokenspanlist.append(positive_token)
+            pos_maps = create_positive_map_from_span(tokenlizer(captions), tokenspanlist).to(prob_to_token.device)
         else:
             pos_maps = self.positive_map.to(prob_to_token.device)
-            # (bs, 900, 256) @ (80, 256).T -> (bs, 900, 80) # 900 means the max bboxes
-            # [bs,i,j] 第 i 个 bbox 对 j category 的 scores， 是multi-label， 即每一类别的positive的probability
-            prob_to_label = prob_to_token @ pos_maps.T
+
+
+        # (bs, 900, 256) @ (80, 256).T -> (bs, 900, 80) # 900 means the max bboxes
+        # [bs,i,j] 第 i 个 bbox 对 j category 的 scores， 是multi-label， 即每一类别的positive的probability
+        prob_to_label = prob_to_token @ pos_maps.T
 
         topk_values, topk_indexes = torch.topk(prob_to_label.view(out_logits.shape[0], -1), self.num_select, dim=1) # 同一个bbox 可能对应不同的类别
         scores = topk_values
         topk_boxes = topk_indexes // prob_to_label.shape[2]
         labels = topk_indexes % prob_to_label.shape[2]
-
-        if post_information is not None: #categroy_idx 映射
-            for bs_id, post_information_per_img in enumerate(post_information):
-                idx = torch.tensor(post_information_per_img['idx']).to(prob_to_token.device)
-                labels[bs_id] = idx[labels[bs_id]]
 
 
         boxes = box_ops.box_cxcywh_to_xyxy(out_bbox) #坐标转换

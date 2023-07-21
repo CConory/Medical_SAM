@@ -64,7 +64,7 @@ FUSE_TOKEN_GAMMA = 2.0
 
 # Optimizer
 optimizer = "ADAMW"
-base_lr = 1.0e-3
+base_lr = 1.0e-4
 weight_decay = 0.0001
 weight_decay_bias = 0.0
 bias_lr_factor = 2
