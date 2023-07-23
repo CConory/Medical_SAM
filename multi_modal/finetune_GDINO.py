@@ -207,9 +207,6 @@ if __name__ == '__main__':
             s = ('%10s' + '%10.4g' + '%10s') % ('%g/%g' % (epoch + 1, cfg.max_epoch), total_loss / (i + 1), mem)
             progress_bar.set_description(s)
 
-            
-
-
             imgs_size = torch.stack(imgs_size,dim=0).to(device)
             # targets cxcywh -> original image xxyy
             img_h, img_w = imgs_size.unbind(1)
@@ -239,8 +236,6 @@ if __name__ == '__main__':
                 if vis_img:
                     log_result.update({"visualization/labels": vis_img})
                 wandb.log(log_result)
-            
-            break
 
         # train_mean_AP = 0
         # train_stats = [np.concatenate(x, 0) for x in zip(*train_stats)] 
@@ -282,9 +277,15 @@ if __name__ == '__main__':
                 
         val_stats = [np.concatenate(x, 0) for x in zip(*val_stats)] 
         valid_mean_AP = 0
+        category_AP = {}
         if len(val_stats) and val_stats[0].any():
             result = ap_per_class(*val_stats)
             valid_mean_AP = result["ap"].mean(0)*100
+            for i,class_id in enumerate(result["classes"]):
+                class_name = category_dict[class_id]
+                category_AP.update({f"val/{class_name}_AP_{int(args.mAP_threshold*100)}":result["ap"][i]*100})
+
+
         
         if valid_mean_AP > best_val_map:
             patience = 0
@@ -302,6 +303,7 @@ if __name__ == '__main__':
                 f"val/mAP_{int(args.mAP_threshold*100)}":valid_mean_AP,
                 "visualization/valid_result":visulization_imgs
                 }
+            log_result.update(category_AP)
             wandb.log(log_result)
 
 

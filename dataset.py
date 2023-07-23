@@ -446,8 +446,8 @@ class Medical_Detecton(All_boxes_Dataset):
         '''
             能让类别跟对应的instruction区分开，并且在后处理的时候能关联起来
         '''
-        # self.cat_list = ["vessel","glomerulus","unsure"]
-        self.cat_list = ["vessel"]
+        self.cat_list = ["vessel","glomerulus","unsure"]
+        # self.cat_list = ["vessel"]
         instruction = [
                 ["arterioles, capillaries or venules tissue"], # for category: 0
                 ["glomerulus tissue"], #for category:1
