@@ -4,6 +4,7 @@ Pytorch Dataloader
 import json
 import numpy as np
 import torch
+from torch.nn import functional as F
 import torch.utils.data as data
 import random
 import cv2
@@ -34,6 +35,8 @@ def mask_2_boxes(mask):
     instances_mask = mask[...,0]
     max_instance_nums = np.max(instances_mask)
     max_category_idx = np.max(mask[...,1])
+    masks = []
+    # masks_target = np.
     for category_idx in range(max_category_idx): #[0,1,2,3...n-1]
         semantic_mask = mask[...,1]== category_idx+1 # [1,2,3,....n]
         for instance_id in range(1,max_instance_nums+1):
@@ -44,11 +47,15 @@ def mask_2_boxes(mask):
                 if c1[2]<=0 or c1[3]<=0:
                     continue
                 instance_bboxes.append([0,c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3],category_idx]) # bs_id, x1y1x2y2, class_index 
+                _mask = (labels==i).astype(np.float)
+                masks.append(_mask)
     if len(instance_bboxes):
+        masks = np.array(masks,dtype=np.float32)
         result = np.array(instance_bboxes,dtype=np.float32)
     else:
         result = np.zeros((0,6),dtype=np.float32)
-    return result
+        masks = np.zeros((0,*(instances_mask.shape)),dtype=np.float32)
+    return result,masks
 
 class Dataset(data.Dataset):
     def __init__(self, json_path,split,device):
@@ -474,7 +481,7 @@ class Medical_Detecton(All_boxes_Dataset):
 
         mask = np.load(mask_path,allow_pickle=True)
         mask = mask.astype(np.int32)
-        target = mask_2_boxes(mask)
+        target,_ = mask_2_boxes(mask)
         target = torch.tensor(target)
 
         target[:, 1:-1:2].clamp_(min=0, max=w)
@@ -530,6 +537,110 @@ class Medical_Detecton(All_boxes_Dataset):
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
         return img_size,images,instance_bboxes,ori_img,list(captions),one_hot_positive_map,instruction
+
+class Medical_SAM(Medical_Detecton):
+    def __init__(self, json_path,split,device,transforms=None,is_train=False,tokenizer=None,cfg=None):
+        super().__init__(json_path, split,device,transforms,is_train,tokenizer)
+        self.resized_size = cfg.encoder_img_size if cfg is not None else 1024
+        self.pixel_mean = [123.675, 116.28, 103.53]
+        self.pixel_std = [58.395, 57.12, 57.375]
+        self.pixel_mean =  torch.Tensor(self.pixel_mean).view(-1, 1, 1)
+        self.pixel_std =  torch.Tensor(self.pixel_std).view(-1, 1, 1)
+    def __getitem__(self, index):
+        file_name = self.file_names[index]
+        suffix = os.path.splitext(file_name)[1]
+        image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
+        origin_img = cv2.imread(image_path) #BGR
+        h,w = origin_img.shape[:2]
+        img = cv2.cvtColor(origin_img, cv2.COLOR_BGR2RGB) #BGR->RGB
+
+        # w,h = image.size
+        img_size = torch.tensor([h, w])
+
+        mask = np.load(mask_path,allow_pickle=True)
+
+       
+        if self._transforms is not None:
+            img = self._transforms.apply_image(img)
+        
+        img = torch.as_tensor(img) # Numpy -> Torch.tensor
+        img = img.permute(2, 0, 1).contiguous() # H,W,C -> C,H,W
+        # Normalize colors
+        img = (img - self.pixel_mean) / self.pixel_std
+        new_h, new_w = img.shape[-2:]
+        padh = self.resized_size - new_h
+        padw = self.resized_size - new_w
+        img = F.pad(img, (0, padw, 0, padh))
+
+        # generate mask and bbox 
+        bboxes,masks = mask_2_boxes(mask)
+        bboxes = torch.tensor(bboxes)
+        bboxes[:, 1:-1:2].clamp_(min=0, max=w)
+        bboxes[:, 2:-1:2].clamp_(min=0, max=h)
+        keep = (bboxes[:, 4] > bboxes[:, 2]) & (bboxes[:, 3] > bboxes[:, 1])
+        bboxes = bboxes[keep]
+
+        masks = torch.as_tensor(masks)
+        masks = masks[keep]
+
+        bboxes[:,1:-1] = box_ops.box_xyxy_to_cxcywh(bboxes[:,1:-1] / torch.tensor([w, h, w, h], dtype=torch.float32)) # Normalization 
+        categor_names = [self.cat_list[int(cls_id.item())] for cls_id in bboxes[:,-1]]
+
+
+        # For mask target
+        masks = masks[None,...]
+        if self._transforms is not None:
+            masks = self._transforms.apply_image_torch(masks)[0]
+        masks[masks!=0] = 1
+        masks = F.pad(masks, (0, padw, 0, padh))
+
+        # For captions and text target
+        caption,cat2tokenspan,instruction = generate_captions_postive_map(self.instruction.copy(),is_train=self.is_train)
+        if self.is_train:
+            positive_tokens = []
+            for cls_name in categor_names:
+                positive_token = []
+                for per_instruction_of_cls in self.cat_2_instruction[cls_name]:
+                    positive_token.extend(cat2tokenspan[per_instruction_of_cls])
+                positive_tokens.append(positive_token)
+            one_hot_positive_map = create_positive_map_from_span(self.tokenlizer(caption), positive_tokens)  #Used to train
+            one_hot_positive_map[one_hot_positive_map!=0] =1
+
+            return img_size,img,bboxes,origin_img,caption,one_hot_positive_map,instruction,masks
+        else:
+            return img_size,img,bboxes,origin_img,caption,masks
+
+        # visualization_flag = False
+        # if visualization_flag:
+            category_color = {
+                1:(255,0,0),
+                2:(0,255,0),
+                3:(0,0,255),
+                4:(255,255,0),
+                5:(0,255,255),
+                6:(255,0,255)
+            }
+            semantic_output_img = image.copy()
+            for i in range(1,4):
+                category_id = semantic_mask==i
+                semantic_output_img[category_id] = (semantic_output_img[category_id]*0.4 + tuple(tmp*0.6 for tmp in category_color[i])).astype(np.uint8)
+            cv2.imwrite("./tmp.jpg",semantic_output_img)
+
+    @staticmethod
+    def collate_fn(batch):
+        img_size,images,instance_bboxes,ori_img,captions,masks = zip(*batch)
+        for i,l in enumerate(instance_bboxes):
+            l[:, 0] = i 
+        return img_size,images,instance_bboxes,ori_img,list(captions),masks
+    @staticmethod
+    def collate_fn_for_train(batch):
+        img_size,imgs,bboxes,origin_img,captions,one_hot_positive_map,instruction,masks = zip(*batch)
+        imgs = torch.stack(imgs,dim=0)
+        one_hot_positive_map = torch.cat(one_hot_positive_map, dim=0)
+        masks = torch.cat(masks, dim=0)
+        for i,l in enumerate(bboxes):
+            l[:, 0] = i 
+        return img_size,imgs,bboxes,origin_img,list(captions),one_hot_positive_map,instruction,masks
 
 class CocoDetection(torchvision.datasets.CocoDetection):
     def __init__(self, img_folder, ann_file, transforms,is_train=False,tokenizer=None):
@@ -621,3 +732,12 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
         return img_size,images,instance_bboxes,ori_img,list(captions),one_hot_positive_map,post_process_information
+
+
+def generate_captions_postive_map(instruction,is_train=False):
+    if is_train:
+        all_category_idx = list(range(len(instruction)))
+        random.shuffle(all_category_idx)
+        instruction = [ instruction[c_id] for c_id in all_category_idx]
+    captions, cat2tokenspan = build_captions_and_token_span(instruction, True)
+    return captions,cat2tokenspan,instruction

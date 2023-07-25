@@ -1,10 +1,8 @@
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import sys
-import groundingdino.datasets.transforms as T
-module_path = os.path.abspath(os.path.join('..'))
-if module_path not in sys.path:
-    sys.path.append(module_path)
+
+from segment_anything.utils.transforms import ResizeLongestSide
 
 
 from groundingdino.util.misc import nested_tensor_from_tensor_list
@@ -13,10 +11,10 @@ from groundingdino.util import get_tokenlizer,box_ops
 
 from multi_modal.models.groundingdino_v1 import build_groundingdino
 from multi_modal.Loss.loss import ATSSLossComputation
-from multi_modal.Grounding_dino_infer import load_model,PostProcessGrounding
+from multi_modal.models.build_sam import sam_model_registry
 from multi_modal.solver import make_optimizer,make_lr_scheduler
 from multi_modal.eval_utils import processs_batch,ap_per_class
-from dataset import CocoDetection,Medical_Detecton
+from dataset import Medical_SAM
 from logger import visualization_bboxes
 
 
@@ -33,36 +31,22 @@ scaler = GradScaler()
 
 def build_dataset_and_dataloader(cfg,args,is_train=False):
 
-    if args.dataset == "coco":
-        img_dir = "../data/coco_2017/val2017"
-        anno_path = "../data/coco_2017/annotations/instances_val2017.json"
-
-    transform = T.Compose(
-        [
-            T.RandomResize([800], max_size=1333),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), 
-        ]
-    )
+    transform = resize_transform = ResizeLongestSide(cfg.encoder_img_size)
     tokenlizer = get_tokenlizer.get_tokenlizer(cfg.text_encoder_type)
 
-    if args.dataset == "coco":
-        dataset = CocoDetection(img_dir,anno_path,transform,is_train=is_train,tokenizer=tokenlizer)
-        # collate_fn = CocoDetection.collate_fn
-        collate_fn = CocoDetection.collate_fn_for_train if is_train else CocoDetection.collate_fn
-    else:
-        dataset_root_dir = "../data"
-        dataset_name = args.dataset
-        dataset_dir = os.path.join(dataset_root_dir,dataset_name)
-        dataset_type = "train" if is_train else "valid"
-        dataset = Medical_Detecton(os.path.join(dataset_dir,"data_split.json"),dataset_type,device,transform,is_train=is_train,tokenizer=tokenlizer)
-        collate_fn = Medical_Detecton.collate_fn_for_train if is_train else Medical_Detecton.collate_fn
+
+    dataset_root_dir = "./data"
+    dataset_name = args.dataset
+    dataset_dir = os.path.join(dataset_root_dir,dataset_name)
+    dataset_type = "train" if is_train else "valid"
+    dataset = Medical_SAM(os.path.join(dataset_dir,"data_split.json"),dataset_type,device,transform,is_train=is_train,tokenizer=tokenlizer)
+    collate_fn = Medical_SAM.collate_fn_for_train if is_train else Medical_SAM.collate_fn
     
     shuffle = True if is_train else False
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=4,
-        num_workers=4,
+        batch_size=1,
+        num_workers=0,
         shuffle=shuffle,
         pin_memory=False,
         collate_fn = collate_fn,
@@ -95,48 +79,48 @@ if __name__ == '__main__':
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
     
-    config_file_path = "./config/GroundingDINO_SwinT_OGC.py"
-    checkpoint_path = "/userhome/cs2/kuangww/GroundingDINO/weights/groundingdino_swint_ogc.pth"
+    config_file_path = "./multi_modal/config/GroundingDINO_SwinT_OGC.py"
+    checkpoint_path = "/userhome/cs2/kuangww/medical_sam/weights/sam_vit_b_01ec64.pth"
     cfg = SLConfig.fromfile(config_file_path)
     shutil.copy(config_file_path,os.path.join(args.output_dir,os.path.basename(config_file_path)))
 
 
     device = "cuda"
 
+    #Construct model
+    model = sam_model_registry["vit_b"](args=cfg,checkpoint = checkpoint_path) 
+    model = model.to(device)
+    model = model.train()
+    cfg.encoder_img_size = model.image_encoder.img_size
+
     # Construct the dataset and dataloader
     trian_dataset,train_loader = build_dataset_and_dataloader(cfg,args,is_train=True)
     category_dict = {id:cat_item for id,cat_item in enumerate(trian_dataset.cat_list)}
 
-    valid_dataset,valid_loader = build_dataset_and_dataloader(cfg,args,is_train=False)
+    # valid_dataset,valid_loader = build_dataset_and_dataloader(cfg,args,is_train=False)
 
     if cfg.max_iter is None:
         cfg.max_iter = (len(train_loader)//cfg.gradient_calculate_step)*cfg.max_epoch
     if cfg.warmup_iters is None:
         cfg.warmup_iters = min(round(3 * len(train_loader)), 2000)//cfg.gradient_calculate_step
 
-
-    #Construct model
-    model = load_model(config_file_path, checkpoint_path)
-    model = model.to(device)
-    model = model.train()
-
     
     
     if cfg.image_backbone_freeze:
-        for p in model.backbone.parameters():
+        for p in model.image_encoder.parameters():
             p.requires_grad = False
     if cfg.language_backbone_freeze:
-        for p in model.bert.parameters():
+        for p in model.new_decoder.bert.parameters():
             p.requires_grad = False
-    if cfg.transformer_freeze:
-        for p in model.transformer.parameters():
-            p.requires_grad = False
+    # if cfg.transformer_freeze:
+    #     for p in model.new_decoder.transformer.parameters():
+    #         p.requires_grad = False
     
-    if not cfg.box_cls_embed_freeze:  # 因为transformer 包含box，cls_embed 的共享权重
-        for p in model.bbox_embed.parameters():
-            p.requires_grad = True
-        for p in model.class_embed.parameters():
-            p.requires_grad = True
+    # if not cfg.box_cls_embed_freeze:  # 因为transformer 包含box，cls_embed 的共享权重
+    #     for p in model.new_decoder.bbox_embed.parameters():
+    #         p.requires_grad = True
+    #     for p in model.new_decoder.class_embed.parameters():
+    #         p.requires_grad = True
     
     optimizer = make_optimizer(cfg, model)
     optimizer.zero_grad()
@@ -147,11 +131,11 @@ if __name__ == '__main__':
 
     # Construct the Post-processing for the predn of training or evaluate processing
     tokenlizer = get_tokenlizer.get_tokenlizer(cfg.text_encoder_type)
-    postprocessor = PostProcessGrounding(
-        category_list=trian_dataset.cat_list,
-        instruction = trian_dataset.instruction,
-        cat_2_instruction =trian_dataset.cat_2_instruction,
-        tokenlizer=tokenlizer)
+    # postprocessor = PostProcessGrounding(
+    #     category_list=trian_dataset.cat_list,
+    #     instruction = trian_dataset.instruction,
+    #     cat_2_instruction =trian_dataset.cat_2_instruction,
+    #     tokenlizer=tokenlizer)
 
     # gradient_accumlate
     nb = len(train_loader)
@@ -169,7 +153,9 @@ if __name__ == '__main__':
         train_log_loss = {
             "train/loss/loss_ce":0,
             "train/loss/l1_bbox":0,
-            "train/loss/loss_giou":0
+            "train/loss/loss_giou":0,
+            "train/loss/loss_mask":0,
+            "train/loss/loss_dice":0
         }
         print(('\n' + '%10s' * 3) % ('epoch', 'loss', 'gpu'))
         
@@ -177,20 +163,21 @@ if __name__ == '__main__':
         train_stats = []
 
         # Training process
-        for i, (imgs_size, images,targets, ori_img, captions, one_hot_positive_map,instruction) in progress_bar:
+        for i, (imgs_size,images,targets,ori_img,captions,one_hot_positive_map,instruction,masks) in progress_bar:
             
             ni = i + nb * epoch  #num_iteration
+            images = images.to(device)
+            outputs = model(images, captions=captions)
             targets = [tmp.to(device) for tmp in targets]
             one_hot_positive_map = one_hot_positive_map.to(device)
-            inputs = nested_tensor_from_tensor_list(images)
-            inputs = inputs.to(device)
-            outputs = model(inputs, captions=captions)
-            loss_dict,sum_loss = criterion(outputs,targets,one_hot_positive_map)
+            masks = masks.to(device)
+            loss_dict,sum_loss = criterion(outputs,targets,one_hot_positive_map,masks)
             scaler.scale(sum_loss).backward()
 
             for key,value in loss_dict.items():
                 train_log_loss[f"train/loss/{key}"]+=value
             total_loss += sum_loss.data
+
             
 
             lr = optimizer.param_groups[0]['lr']

@@ -9,7 +9,52 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from groundingdino.util import box_ops
+from groundingdino.util.misc import interpolate
 # from torch.cuda.amp import custom_fwd
+
+def sigmoid_focal_loss(inputs, targets, alpha: float = 0.25, gamma: float = 2):
+    """
+    Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
+    Args:
+        inputs: A float tensor of arbitrary shape.
+                The predictions for each example.
+        targets: A float tensor with the same shape as inputs. Stores the binary
+                 classification label for each element in inputs
+                (0 for the negative class and 1 for the positive class).
+        alpha: (optional) Weighting factor in range (0,1) to balance
+                positive vs negative examples. Default = -1 (no weighting).
+        gamma: Exponent of the modulating factor (1 - p_t) to
+               balance easy vs hard examples.
+    Returns:
+        Loss tensor
+    """
+    prob = inputs.sigmoid()
+    ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+    p_t = prob * targets + (1 - prob) * (1 - targets)
+    loss = ce_loss * ((1 - p_t) ** gamma)
+
+    if alpha >= 0:
+        alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
+        loss = alpha_t * loss
+    
+    return loss.mean()
+
+def dice_loss(inputs, targets):
+    """
+    Compute the DICE loss, similar to generalized IOU for masks
+    Args:
+        inputs: A float tensor of arbitrary shape.
+                The predictions for each example.
+        targets: A float tensor with the same shape as inputs. Stores the binary
+                 classification label for each element in inputs
+                (0 for the negative class and 1 for the positive class).
+    """
+    inputs = inputs.sigmoid()
+    inputs = inputs.flatten(1)
+    numerator = 2 * (inputs * targets).sum(1)
+    denominator = inputs.sum(-1) + targets.sum(-1)
+    loss = 1 - (numerator + 1) / (denominator + 1)
+    return loss.mean()
 
 def token_sigmoid_binary_focal_loss_v2(pred_logits, targets, alpha, gamma, text_mask=None):
     # Copy From From GLIP 
@@ -60,18 +105,49 @@ class ATSSLossComputation(torch.nn.Module):
                                                          args.FUSE_TOKEN_GAMMA)
 
     # @custom_fwd(cast_inputs=torch.float32)
-    def forward(self, outputs, targets,positive_map=None):
+    def forward(self, outputs, targets,positive_map=None,masks=None):
         indices = self.matcher(outputs, targets,positive_map)
 
 
         losses = {}
         losses.update(self.loss_boxes(outputs, targets, indices))
         losses.update(self.loss_token(outputs, positive_map, indices))
+        losses.update(self.loss_masks(outputs,masks,indices))
+
         
         sum_loss = sum([value * self.args[f"{key}_weight"] for key,value in losses.items()])
         losses = {key:value.data for key,value in losses.items()}
         return losses,sum_loss
-        
+    
+    def loss_masks(self, outputs, target_masks, indices):
+        """Compute the losses related to the masks: the focal loss and the dice loss.
+           targets dicts must contain the key "masks" containing a tensor of dim [nb_target_boxes, h, w]
+        """
+        assert "pred_masks" in outputs
+
+        src_idx = self._get_src_permutation_idx(indices)
+
+        src_masks = outputs["pred_masks"]
+
+        src_masks = src_masks[src_idx]
+        # upsample predictions to the target size
+        src_masks = interpolate(src_masks[:, None], size=target_masks.shape[-2:],
+                                mode="bilinear", align_corners=False)
+        src_masks = src_masks[:, 0].flatten(1)
+
+        start_idx = 0
+        _target_masks = []
+        for _,i in indices:
+            end_idx = start_idx+len(i)
+            _target_masks.append(target_masks[start_idx:end_idx][i])
+            start_idx = end_idx
+        target_masks = torch.cat(_target_masks, dim=0).flatten(1)
+
+        losses = {
+            "loss_mask": sigmoid_focal_loss(src_masks, target_masks),
+            "loss_dice": dice_loss(src_masks, target_masks),
+        }
+        return losses
         
     
     def loss_token(self,outputs, positive_map, indices,text_masks=None):
@@ -114,6 +190,12 @@ class ATSSLossComputation(torch.nn.Module):
         batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
         src_idx = torch.cat([src for (src, _) in indices])
         return batch_idx, src_idx
+
+    def _get_tgt_permutation_idx(self, indices):
+        # permute targets following indices
+        batch_idx = torch.cat([torch.full_like(tgt, i) for i, (_, tgt) in enumerate(indices)])
+        tgt_idx = torch.cat([tgt for (_, tgt) in indices])
+        return batch_idx, tgt_idx
 
     def prepare_targets(self,outputs, targets,positive_map= None):
 

@@ -271,12 +271,14 @@ class GroundingDINO(nn.Module):
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
 
+        # TODO: # 探究 poss 怎么来, possition_encoding; features 包含 src 跟 mask
         if self.training_args is not None and self.training_args['image_backbone_freeze']:
-            with torch.no_grad():
-                features, poss = self.backbone(samples)
+            with torch.no_grad():   
+                features, poss = self.backbone(samples) 
         else:
-            features, poss = self.backbone(samples)
-        
+            features, poss = self.backbone(samples) #mask 就是 nested_tensor_from_tensor_list生成
+        # {'tensors.shape': torch.Size([4, 192, 100, 100]), 'mask.shape': torch.Size([4, 100, 100])}
+        # poss[0].shape = [4,256,100,100]
         srcs = []
         masks = []
         for l, feat in enumerate(features):
