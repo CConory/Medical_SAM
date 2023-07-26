@@ -54,6 +54,8 @@ box_cls_embed_freeze = False
 ## For macher between predn and target
 loss_ce_weight = 1
 l1_bbox_weight = 5
+loss_mask_weight = 1
+loss_dice_weight = 1
 loss_giou_weight = 2
 atss_topk = 100  # 用于统计 距离匹配前 100 个 predn 的 iou 的均值跟方差
 set_cost_class = 2.0

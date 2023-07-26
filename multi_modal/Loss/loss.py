@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from groundingdino.util import box_ops
-from groundingdino.util.misc import interpolate
+from groundingdino.util.misc import interpolate,nested_tensor_from_tensor_list
 # from torch.cuda.amp import custom_fwd
 
 def sigmoid_focal_loss(inputs, targets, alpha: float = 0.25, gamma: float = 2):
@@ -110,7 +110,7 @@ class ATSSLossComputation(torch.nn.Module):
         losses = {}
         losses.update(self.loss_boxes(outputs, targets, indices))
         losses.update(self.loss_token(outputs, positive_map, indices))
-        # losses.update(self.loss_masks(outputs,masks,indices))
+        losses.update(self.loss_masks(outputs,masks,indices))
 
         
         sum_loss = sum([value * self.args[f"{key}_weight"] for key,value in losses.items()])
@@ -124,11 +124,15 @@ class ATSSLossComputation(torch.nn.Module):
         assert "pred_masks" in outputs
 
         src_idx = self._get_src_permutation_idx(indices)
+        tgt_idx = self._get_tgt_permutation_idx(indices)
 
         src_masks = outputs["pred_masks"]
 
         src_masks = src_masks[src_idx]
         # upsample predictions to the target size
+        target_masks, valid = nested_tensor_from_tensor_list(target_masks).decompose()
+        target_masks = target_masks.to(src_masks)
+        target_masks = target_masks[tgt_idx]
         src_masks = interpolate(src_masks[:, None], size=target_masks.shape[-2:],
                                 mode="bilinear", align_corners=False)
         src_masks = src_masks[:, 0].flatten(1)

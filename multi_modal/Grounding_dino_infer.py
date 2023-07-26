@@ -110,7 +110,7 @@ class PostProcessGrounding(nn.Module):
 
         if out_masks is not None:
             masks = torch.gather( out_masks, 1, topk_boxes.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, *(out_masks.shape[-2:])))
-            masks = F.interpolate(masks,(self.encoder_input_size, self.encoder_input_size),mode="bilinear",align_corners=False,)
+            # masks = F.interpolate(masks,(self.encoder_input_size, self.encoder_input_size),mode="bilinear",align_corners=False,)
         else:
             masks = None
         # and from relative [0, 1] to absolute [0, height] coordinates

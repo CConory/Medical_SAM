@@ -29,6 +29,7 @@ from groundingdino.models.GroundingDINO.bertwarper import (
     generate_masks_with_special_tokens,
     generate_masks_with_special_tokens_and_transfer_map,
 )
+from .detr import MHAttentionMap
 
 import copy
 from torch import nn
@@ -189,6 +190,8 @@ class GroundingDINO(nn.Module):
                 self.transformer.enc_out_class_embed = copy.deepcopy(_class_embed)
 
             self.refpoint_embed = None
+        
+        self.bbox_attention = MHAttentionMap(hidden_dim, hidden_dim, nheads, dropout=0.0)
 
         self._reset_parameters()
 
@@ -308,11 +311,11 @@ class GroundingDINO(nn.Module):
 
         if self.training_args is not None and self.training_args['transformer_freeze']:
             with torch.no_grad():
-                hs, reference, hs_enc, ref_enc, init_box_proposal = self.transformer(
+                hs, reference, hs_enc, ref_enc, init_box_proposal,memory = self.transformer(
                     srcs, masks, input_query_bbox, poss, input_query_label, attn_mask, text_dict
                 )
         else:
-            hs, reference, hs_enc, ref_enc, init_box_proposal = self.transformer(
+            hs, reference, hs_enc, ref_enc, init_box_proposal,memory = self.transformer(
                 srcs, masks, input_query_bbox, poss, input_query_label, attn_mask, text_dict
             )
         
@@ -341,14 +344,14 @@ class GroundingDINO(nn.Module):
             outputs_coord_list = []
             for dec_lid, (layer_ref_sig, layer_bbox_embed, layer_hs) in enumerate(
                 zip(reference[:-1], self.bbox_embed, hs)
-            ):
-                layer_delta_unsig = layer_bbox_embed(layer_hs)
-                layer_outputs_unsig = layer_delta_unsig + inverse_sigmoid(layer_ref_sig)
+            ): 
+                layer_delta_unsig = layer_bbox_embed(layer_hs) # [bs,num_queries,256] ->(fc)-> [bs,num_queries,4]
+                layer_outputs_unsig = layer_delta_unsig + inverse_sigmoid(layer_ref_sig) # 残差融合 [bs,num_queries,4]
                 layer_outputs_unsig = layer_outputs_unsig.sigmoid()
                 outputs_coord_list.append(layer_outputs_unsig)
             outputs_coord_list = torch.stack(outputs_coord_list)
 
-            # output
+            # output # [6,bs,num_queryes,hidden_dim]
             outputs_class = torch.stack(
                 [
                     layer_cls_embed(layer_hs, text_dict)
@@ -357,6 +360,11 @@ class GroundingDINO(nn.Module):
             )
 
         out = {"pred_logits": outputs_class[-1], "pred_boxes": outputs_coord_list[-1]}
+        
+        # hs_enc the proposal bboxes focus on the embedding areas features
+        # hs 如何跟 原图关联起来，原特征每一个pixel[bs,256,h,w] 与这对应区域的特征 [bs, 900, 256] -> [bs,900,h,w] 
+        outputs_mask = torch.einsum("bqc,bchw->bqhw", hs[-1], memory)
+        out["pred_masks"] = outputs_mask
         return out
 
 
