@@ -30,6 +30,8 @@ import shutil
 from torch.cuda.amp import GradScaler
 scaler = GradScaler()
 
+
+
 def post_process_mask(masks, origin_sizes, encoder_size, bs_nums,pred_flag=False):
     # bs_nums : masks 前几个 对应第几个bs
     # origin_size : [ tensor1(H,W), tensor2(H,W), ...]

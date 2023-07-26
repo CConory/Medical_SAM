@@ -52,6 +52,7 @@ def visualization_masks(image,target_mask,pred_mask=None,img_style="plt"):
     if pred_mask is None:
         pred_mask = np.zeros_like(target_mask).astype(np.bool)
     target_mask = target_mask.astype(np.bool)
+    pred_mask = pred_mask.astype(np.bool)
     inter_mask = (pred_mask) & (target_mask)
     show_mask(pred_mask, image.gca(),np.array([0/255, 0/255, 255/255, 0.4]))
     show_mask(target_mask, image.gca(),np.array([0/255, 255/255, 0/255, 0.4]))
