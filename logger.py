@@ -2,7 +2,8 @@ import matplotlib.pyplot as plt
 from PIL import Image,ImageDraw,ImageFont
 from evaluate_from_pt import show_box
 import wandb
-
+import numpy as np
+from evaluate_from_pt import show_mask
 
 def tag_images(img,objs,color="green",category_dict=None):
     '''
@@ -32,7 +33,9 @@ def tag_images(img,objs,color="green",category_dict=None):
                 draw.text((x1,y2),label,fill='white',font=font)
     return img1
 
-def visualization_bboxes(image,target,predn,category_dict = None):
+def visualization_bboxes(image,target,predn,category_dict = None,img_style="PIL"):
+    if img_style == "Numpy":
+        image = Image.fromarray(image)
     image = tag_images(image,target,color = "green",category_dict = category_dict)
     image = tag_images(image,predn,color = "blue",category_dict = category_dict)
     plt.figure(figsize=(10,10))
@@ -42,7 +45,18 @@ def visualization_bboxes(image,target,predn,category_dict = None):
     # for box in predn: 
     #     show_box(box, plt.gca(),"#0099FF")
     plt.axis('off')
-    return wandb.Image(plt)
+    return plt
+    # return wandb.Image(plt)
+
+def visualization_masks(image,target_mask,pred_mask=None,img_style="plt"):
+    if pred_mask is None:
+        pred_mask = np.zeros_like(target_mask).astype(np.bool)
+    target_mask = target_mask.astype(np.bool)
+    inter_mask = (pred_mask) & (target_mask)
+    show_mask(pred_mask, image.gca(),np.array([0/255, 0/255, 255/255, 0.4]))
+    show_mask(target_mask, image.gca(),np.array([0/255, 255/255, 0/255, 0.4]))
+    show_mask(inter_mask, image.gca(),np.array([255/255, 255/255, 0/255, 0.4]))
+    return image
 
 def wandb_logger(result,visulization_imgs,args,category_names):
     class_id2name = {id:name for id,name in enumerate(category_names)}

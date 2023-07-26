@@ -177,8 +177,7 @@ if __name__ == '__main__':
         train_stats = []
 
         # Training process
-        for i, (imgs_size, images,targets, ori_img, captions, one_hot_positive_map,instruction) in progress_bar:
-            
+        for i, (imgs_size, images,targets, ori_img, captions, one_hot_positive_map,instruction,masks) in progress_bar:
             ni = i + nb * epoch  #num_iteration
             targets = [tmp.to(device) for tmp in targets]
             one_hot_positive_map = one_hot_positive_map.to(device)
@@ -224,6 +223,7 @@ if __name__ == '__main__':
             if args.wandb_log and ni<10 :
                 # vis_pred = predn[0][predn[0][:,-2]>0.3].cpu().numpy() # 输出预测结果的可视化
                 vis_img = visualization_bboxes(ori_img[0], targets[0][:,1:].cpu().numpy(), predn =[],category_dict=category_dict)
+                vis_img =  wandb.Image(vis_img)
             else:
                 vis_img = None
             
@@ -247,14 +247,14 @@ if __name__ == '__main__':
         val_stats = []
         model.eval()
         progress_bar = tqdm(enumerate(valid_loader), total=len(valid_loader))
-        for i, (imgs_size, images,targets, ori_img, captions) in progress_bar:
+        for i, (imgs_size, images,targets, ori_img, captions,masks) in progress_bar:
             with torch.no_grad():
                 targets = [tmp.to(device) for tmp in targets]
                 inputs = nested_tensor_from_tensor_list(images)
                 inputs = inputs.to(device)
                 outputs = model(inputs, captions=captions)
                 imgs_size = torch.stack(imgs_size,dim=0).to(device)
-                predn = postprocessor(outputs, imgs_size)
+                predn,masks = postprocessor(outputs, imgs_size)
 
                 # targets cxcywh -> original image xxyy         
                 img_h, img_w = imgs_size.unbind(1)
@@ -271,8 +271,9 @@ if __name__ == '__main__':
         visulization_imgs = []
         for bs_id in range(len(images)):
             vis_pred = predn[bs_id][predn[bs_id][:,-2]>0.3].cpu().numpy()
-            visulization_imgs.append(visualization_bboxes(ori_img[bs_id], targets[bs_id][:,1:].cpu().numpy(), predn =vis_pred,category_dict=category_dict))
-
+            vis_img = visualization_bboxes(ori_img[bs_id], targets[bs_id][:,1:].cpu().numpy(), predn =vis_pred,category_dict=category_dict)
+            vis_img =  wandb.Image(vis_img)
+            visulization_imgs.append(vis_img)
 
                 
         val_stats = [np.concatenate(x, 0) for x in zip(*val_stats)] 
@@ -296,7 +297,6 @@ if __name__ == '__main__':
             patience+=1
             save = {'state_dict': model.state_dict()}
             torch.save(save, os.path.join(args.output_dir, 'last.pth'))
-        
         
         if args.wandb_log:
             log_result = {

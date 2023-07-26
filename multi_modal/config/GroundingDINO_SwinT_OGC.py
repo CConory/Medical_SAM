@@ -13,13 +13,13 @@ dim_feedforward = 2048
 hidden_dim = 256
 dropout = 0.0
 nheads = 8
-num_queries = 50
+num_queries = 900
 query_dim = 4
 num_patterns = 0
-num_feature_levels = 1
+num_feature_levels = 4
 enc_n_points = 4
 dec_n_points = 4
-two_stage_type = "no"
+two_stage_type = "standard"
 two_stage_bbox_embed_share = False
 two_stage_class_embed_share = False
 transformer_activation = "relu"
@@ -45,7 +45,7 @@ sub_sentence_present = True
 # For Finetune
 is_train = True
 language_backbone_freeze = True
-image_backbone_freeze = True
+image_backbone_freeze = False
 transformer_freeze = False
 box_cls_embed_freeze = False
 
@@ -53,8 +53,6 @@ box_cls_embed_freeze = False
 
 ## For macher between predn and target
 loss_ce_weight = 1
-loss_mask_weight = 1
-loss_dice_weight = 1
 l1_bbox_weight = 5
 loss_giou_weight = 2
 atss_topk = 100  # 用于统计 距离匹配前 100 个 predn 的 iou 的均值跟方差
@@ -90,5 +88,5 @@ warmup_step_patience = 5 # for autostep
 lr_steps = [0.67,0.89]
 
 # others:
-gradient_calculate_step = 32
+gradient_calculate_step = 8
 

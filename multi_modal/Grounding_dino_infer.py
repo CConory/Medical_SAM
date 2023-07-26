@@ -18,6 +18,7 @@ from dataset import CocoDetection,Medical_Detecton
 import torch
 import torch.nn as nn
 from tqdm import tqdm
+from torch.nn import functional as F
 
 from multi_modal.eval_utils import processs_batch,ap_per_class
 from multi_modal.Loss.loss import ATSSLossComputation
@@ -38,9 +39,10 @@ def load_model(model_config_path: str, model_checkpoint_path: str, device: str =
     return model
 
 class PostProcessGrounding(nn.Module):
-    def __init__(self, num_select=300,category_list=None,instruction=None,cat_2_instruction=None, tokenlizer=None) -> None:
+    def __init__(self, num_select=300,category_list=None,instruction=None,cat_2_instruction=None, tokenlizer=None,encoder_input_size=1024) -> None:
         super().__init__()
         self.num_select = num_select
+        self.encoder_input_size = encoder_input_size
         # captions 拼接成一个句子， cat2tokenspan : captions 在句子中的起始位置
         
         self.category_list = category_list
@@ -78,8 +80,10 @@ class PostProcessGrounding(nn.Module):
             post_information : 用于 instruction 打乱后， 各部分token对应不同类别 id 的 映射
         """
         out_logits, out_bbox = outputs['pred_logits'], outputs['pred_boxes']
+        out_masks = outputs.get("pred_masks",None)
         prob_to_token = out_logits.sigmoid()
         if instruction:
+            # FIXME 在训练过程中，要用for循环 把不同 batch_id 的 image 的instrcution 重新计算得到pos_map 再concat起来
             captions, cat2tokenspan = build_captions_and_token_span(instruction, True)
             tokenspanlist = []
             for cls_name in self.category_list:
@@ -101,18 +105,22 @@ class PostProcessGrounding(nn.Module):
         topk_boxes = topk_indexes // prob_to_label.shape[2]
         labels = topk_indexes % prob_to_label.shape[2]
 
-
         boxes = box_ops.box_cxcywh_to_xyxy(out_bbox) #坐标转换
         boxes = torch.gather( boxes, 1, topk_boxes.unsqueeze(-1).repeat(1, 1, 4))
 
-         # and from relative [0, 1] to absolute [0, height] coordinates
+        if out_masks is not None:
+            masks = torch.gather( out_masks, 1, topk_boxes.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, *(out_masks.shape[-2:])))
+            masks = F.interpolate(masks,(self.encoder_input_size, self.encoder_input_size),mode="bilinear",align_corners=False,)
+        else:
+            masks = None
+        # and from relative [0, 1] to absolute [0, height] coordinates
         img_h, img_w = target_sizes.unbind(1)
         scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
 
         boxes = boxes * scale_fct[:, None, :]
 
         result = torch.cat((boxes,scores.unsqueeze(-1),labels.unsqueeze(-1)),dim=-1)
-        return result
+        return result,masks
         
 if __name__ == '__main__':
 

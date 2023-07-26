@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+import copy
 
 from typing import Any, Dict, List, Tuple
 from segment_anything.modeling.image_encoder import ImageEncoderViT
@@ -13,7 +14,7 @@ from groundingdino.models.GroundingDINO.bertwarper import (
     generate_masks_with_special_tokens,
     generate_masks_with_special_tokens_and_transfer_map,
 )
-from groundingdino.util.misc import inverse_sigmoid
+from groundingdino.util.misc import inverse_sigmoid,NestedTensor
 from groundingdino.models.GroundingDINO.utils import ContrastiveEmbed,MLP
 from .detr import MaskHeadSmallConv,MHAttentionMap,MaskHeadAsSam
 
@@ -41,9 +42,11 @@ class IT_decoder(nn.Module):
         text_encoder_type="bert-base-uncased",
         sub_sentence_present=True,
         max_text_len=256,
-        training_args= None
+        training_args= None,
+        poss_encoding=None,
     ):
         super().__init__()
+        self.poss_encoding = poss_encoding
         self.training_args = training_args
         self.transformer = transformer
         self.hidden_dim = hidden_dim = transformer.d_model
@@ -72,7 +75,7 @@ class IT_decoder(nn.Module):
 
 
         # prepare input projection layers
-        assert two_stage_type == "no", "two_stage_type should be no if num_feature_levels=1 !!!"
+        # assert two_stage_type == "no", "two_stage_type should be no if num_feature_levels=1 !!!"
         self.input_proj = nn.ModuleList(
                 [
                     nn.Sequential(
@@ -102,6 +105,21 @@ class IT_decoder(nn.Module):
         self.class_embed = nn.ModuleList(class_embed_layerlist)
         self.transformer.decoder.bbox_embed = self.bbox_embed
         self.transformer.decoder.class_embed = self.class_embed
+    
+        if two_stage_type != "no":
+            if two_stage_bbox_embed_share:
+                assert dec_pred_bbox_embed_share
+                self.transformer.enc_out_bbox_embed = _bbox_embed
+            else:
+                self.transformer.enc_out_bbox_embed = copy.deepcopy(_bbox_embed)
+
+            if two_stage_class_embed_share:
+                assert dec_pred_bbox_embed_share
+                self.transformer.enc_out_class_embed = _class_embed
+            else:
+                self.transformer.enc_out_class_embed = copy.deepcopy(_class_embed)
+
+            self.refpoint_embed = None
 
 
         self.bbox_attention = MHAttentionMap(self.hidden_dim, self.hidden_dim, self.nheads, dropout=0)
@@ -113,7 +131,7 @@ class IT_decoder(nn.Module):
             nn.init.xavier_uniform_(proj[0].weight, gain=1)
             nn.init.constant_(proj[0].bias, 0)
 
-    def forward(self,img_encoding,captions,image_pe):
+    def forward(self,img_encoding,captions):
         # img_encoding.shape : [bs, 256, h/16, w/16]
         device = img_encoding.device
 
@@ -173,9 +191,10 @@ class IT_decoder(nn.Module):
 
         srcs = []
         masks = []
-        poss = [image_pe]
+        # poss = [image_pe]
         B,C,H,W = img_encoding.shape
         mask = torch.zeros((B,H,W),dtype=torch.bool,device=device)
+        poss = [self.poss_encoding(NestedTensor(img_encoding, mask))]
         masks.append(mask)
         srcs.append(self.input_proj[0](img_encoding)) # bs, 256, h/16, w/16
 
@@ -231,17 +250,17 @@ class IT_decoder(nn.Module):
             )
         
         out = {"pred_logits": outputs_class[-1], "pred_boxes": outputs_coord_list[-1]}
-        bbox_mask = self.bbox_attention(hs[-1], memory, mask=mask)
-        seg_masks = self.mask_head(srcs[0], bbox_mask)
-        outputs_seg_masks = seg_masks.view(B, bbox_mask.shape[1], seg_masks.shape[-2], seg_masks.shape[-1])
-        out["pred_masks"] = outputs_seg_masks
+        # bbox_mask = self.bbox_attention(hs[-1], memory, mask=mask)
+        # seg_masks = self.mask_head(srcs[0], bbox_mask)
+        # outputs_seg_masks = seg_masks.view(B, bbox_mask.shape[1], seg_masks.shape[-2], seg_masks.shape[-1])
+        # out["pred_masks"] = outputs_seg_masks
         return out
 
 
 
 
 class Sam(nn.Module):
-    mask_threshold: float = 0.0
+    mask_threshold: float = 0.0 #sigmoid 前0 == sigmoid 后0.5
     image_format: str = "RGB"
 
     def __init__(
@@ -277,12 +296,13 @@ class Sam(nn.Module):
         return self.pixel_mean.device
     
     def forward(self,imgs,captions=None):
-        with torch.no_grad():
-            image_embeddings = self.image_encoder(imgs)
-        if captions is not None:
-            poss = self.prompt_encoder.get_dense_pe()
-            poss = torch.repeat_interleave(poss, image_embeddings.shape[0], dim=0) #[1,256,h/16,w/16]
-            outputs = self.new_decoder(image_embeddings,captions,poss)
+        # with torch.no_grad():
+        image_embeddings = self.image_encoder(imgs)
+        outputs = self.new_decoder(image_embeddings,captions)
+        # if captions is not None:
+        #     poss = self.prompt_encoder.get_dense_pe()
+        #     poss = torch.repeat_interleave(poss, image_embeddings.shape[0], dim=0) #[1,256,h/16,w/16]
+        #     outputs = self.new_decoder(image_embeddings,captions,poss)
         return outputs
         # # torch.Size([2, 256, 64, 64])
         # # poss = self.prompt_encoder.get_dense_pe()

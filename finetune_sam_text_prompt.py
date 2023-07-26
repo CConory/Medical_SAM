@@ -14,12 +14,14 @@ from multi_modal.Loss.loss import ATSSLossComputation
 from multi_modal.models.build_sam import sam_model_registry
 from multi_modal.solver import make_optimizer,make_lr_scheduler
 from multi_modal.eval_utils import processs_batch,ap_per_class
+from multi_modal.Grounding_dino_infer import PostProcessGrounding
 from dataset import Medical_SAM
-from logger import visualization_bboxes
-
+from logger import visualization_bboxes,visualization_masks
+from evaluate_from_pt import mean_iou_and_dice
 
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 from tqdm import tqdm
 import argparse
 import numpy as np 
@@ -27,6 +29,31 @@ import wandb
 import shutil
 from torch.cuda.amp import GradScaler
 scaler = GradScaler()
+
+def post_process_mask(masks, origin_sizes, encoder_size, bs_nums,pred_flag=False):
+    # bs_nums : masks 前几个 对应第几个bs
+    # origin_size : [ tensor1(H,W), tensor2(H,W), ...]
+    start_idx = 0
+    return_masks = []
+    for img_id,nums in enumerate(bs_nums):
+        origin_size = tuple(origin_sizes[img_id].int().tolist())
+        end_idx = start_idx+nums
+        _masks = masks[start_idx:end_idx]
+        scale = encoder_size *1.0 / max(origin_size)
+        padh = int(encoder_size - origin_size[0]*scale)
+        padw = int(encoder_size - origin_size[1]*scale)
+
+        _masks = _masks[:,:encoder_size-padh,:encoder_size-padw][None,...]
+
+        _masks = F.interpolate(_masks, origin_size, mode="bilinear", align_corners=False)[0]
+        if not pred_flag:
+            # mask 标签 不需要卡threshold， 可以直接转化为前后背景语义分割结果
+            _masks = _masks.sum(dim=0)
+            _masks[_masks!=0] = 1
+        else:
+            _masks = _masks>0 # sigmoid 前大与0， 等于sigmoid 后大于0.5
+        return_masks.append(_masks)
+    return return_masks
 
 
 def build_dataset_and_dataloader(cfg,args,is_train=False):
@@ -45,8 +72,8 @@ def build_dataset_and_dataloader(cfg,args,is_train=False):
     shuffle = True if is_train else False
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=1,
-        num_workers=0,
+        batch_size=2,
+        num_workers=4,
         shuffle=shuffle,
         pin_memory=False,
         collate_fn = collate_fn,
@@ -80,7 +107,7 @@ if __name__ == '__main__':
         os.makedirs(args.output_dir)
     
     config_file_path = "./multi_modal/config/GroundingDINO_SwinT_OGC.py"
-    checkpoint_path = "/userhome/cs2/kuangww/medical_sam/weights/sam_vit_b_01ec64.pth"
+    checkpoint_path = "/userhome/cs2/kuangww/medical_sam/weights/mobile_sam.pt"
     cfg = SLConfig.fromfile(config_file_path)
     shutil.copy(config_file_path,os.path.join(args.output_dir,os.path.basename(config_file_path)))
 
@@ -88,7 +115,7 @@ if __name__ == '__main__':
     device = "cuda"
 
     #Construct model
-    model = sam_model_registry["vit_b"](args=cfg,checkpoint = checkpoint_path) 
+    model = sam_model_registry["vit_t"](args=cfg,checkpoint = checkpoint_path) 
     model = model.to(device)
     model = model.train()
     cfg.encoder_img_size = model.image_encoder.img_size
@@ -97,7 +124,7 @@ if __name__ == '__main__':
     trian_dataset,train_loader = build_dataset_and_dataloader(cfg,args,is_train=True)
     category_dict = {id:cat_item for id,cat_item in enumerate(trian_dataset.cat_list)}
 
-    # valid_dataset,valid_loader = build_dataset_and_dataloader(cfg,args,is_train=False)
+    valid_dataset,valid_loader = build_dataset_and_dataloader(cfg,args,is_train=False)
 
     if cfg.max_iter is None:
         cfg.max_iter = (len(train_loader)//cfg.gradient_calculate_step)*cfg.max_epoch
@@ -131,11 +158,12 @@ if __name__ == '__main__':
 
     # Construct the Post-processing for the predn of training or evaluate processing
     tokenlizer = get_tokenlizer.get_tokenlizer(cfg.text_encoder_type)
-    # postprocessor = PostProcessGrounding(
-    #     category_list=trian_dataset.cat_list,
-    #     instruction = trian_dataset.instruction,
-    #     cat_2_instruction =trian_dataset.cat_2_instruction,
-    #     tokenlizer=tokenlizer)
+    postprocessor = PostProcessGrounding(
+        num_select= 300,
+        category_list=trian_dataset.cat_list,
+        instruction = trian_dataset.instruction,
+        cat_2_instruction =trian_dataset.cat_2_instruction,
+        tokenlizer=tokenlizer)
 
     # gradient_accumlate
     nb = len(train_loader)
@@ -164,7 +192,7 @@ if __name__ == '__main__':
 
         # Training process
         for i, (imgs_size,images,targets,ori_img,captions,one_hot_positive_map,instruction,masks) in progress_bar:
-            
+            bs_target_nums = [len(tmp) for tmp in targets]
             ni = i + nb * epoch  #num_iteration
             images = images.to(device)
             outputs = model(images, captions=captions)
@@ -204,13 +232,21 @@ if __name__ == '__main__':
 
             # Preprocess for the predn and get the evaluation result for the training dataset
             # with torch.no_grad():
-            #     predn = postprocessor(outputs, imgs_size,instruction)
+            #     predn,pred_masks = postprocessor(outputs, imgs_size)
+            #     per_batch_nums = [pred_masks.shape[1] for bs_id in range(len(pred_masks))]
+            #     pred_masks = pred_masks.view(-1,*pred_masks.shape[2:])
+            #     pred_masks =  post_process_mask(pred_masks,imgs_size,model.image_encoder.img_size,per_batch_nums)
+            #     import pdb;pdb.set_trace()
             #     train_stats.extend(processs_batch(predn,targets,args.mAP_threshold))
 
             # 可视化训练过程中标签对不对, 保存前10个batch的第一张图片:
             if args.wandb_log and ni<10 :
                 # vis_pred = predn[0][predn[0][:,-2]>0.3].cpu().numpy() # 输出预测结果的可视化
-                vis_img = visualization_bboxes(ori_img[0], targets[0][:,1:].cpu().numpy(), predn =[],category_dict=category_dict)
+                vis_img = visualization_bboxes(ori_img[0], targets[0][:,1:].cpu().numpy(), predn =[],category_dict=category_dict,img_style="Numpy")
+                target_masks = post_process_mask(masks,imgs_size,model.image_encoder.img_size,bs_target_nums[0:1])
+                vis_img = visualization_masks(vis_img,target_masks[0].cpu().numpy(),pred_mask=None,img_style="plt")
+                # vis_img.savefig("./tmp.jpg")
+                vis_img = wandb.Image(vis_img)
             else:
                 vis_img = None
             
@@ -232,16 +268,41 @@ if __name__ == '__main__':
         
         # Evaluate Processing
         val_stats = []
+        mIoU = []
+        dice = []
         model.eval()
         progress_bar = tqdm(enumerate(valid_loader), total=len(valid_loader))
-        for i, (imgs_size, images,targets, ori_img, captions) in progress_bar:
+        for i, (imgs_size, images,targets, ori_img, captions,masks) in progress_bar:
             with torch.no_grad():
                 targets = [tmp.to(device) for tmp in targets]
-                inputs = nested_tensor_from_tensor_list(images)
-                inputs = inputs.to(device)
-                outputs = model(inputs, captions=captions)
+                images = images.to(device)
+                outputs = model(images, captions=captions)
                 imgs_size = torch.stack(imgs_size,dim=0).to(device)
-                predn = postprocessor(outputs, imgs_size)
+                predn,pred_masks = postprocessor(outputs, imgs_size) # 还原回网络输入尺寸（ 有padding以及 resize）
+                
+                if pred_masks is not None:
+                    per_batch_nums = [pred_masks.shape[1] for bs_id in range(len(pred_masks))] 
+                    pred_masks = pred_masks.view(-1,*pred_masks.shape[2:])  
+                    pred_masks =  post_process_mask(pred_masks,imgs_size,model.image_encoder.img_size,per_batch_nums,pred_flag=True) #还原回每个图片原始尺寸 tuple（mask1,mask2....)
+                
+
+                    # Calculate the semantice metrics
+                    bs_target_nums = [len(tmp) for tmp in targets]
+                    target_masks = post_process_mask(masks,imgs_size,model.image_encoder.img_size,bs_target_nums)
+                    for per_img_id in range(len(pred_masks)):
+                        predn_per_img = predn[per_img_id]
+                        pred_mask_per_img = pred_masks[per_img_id]
+                        pred_mask_per_img = pred_mask_per_img[predn_per_img[:,-2]>0.3] # 与可视化相同的阈值， 只有 bbox 的conf>0.3 才会发上 masks
+                        pred_mask_per_img = pred_mask_per_img.sum(dim=0) #instance_mask -> foreground semantic mask
+                        pred_mask_per_img [pred_mask_per_img!=0] =1 #[h,w]
+                        target_mask_per_img = target_masks[per_img_id] #[h,w]
+                        _mIoU,_dice = mean_iou_and_dice(target_mask_per_img[None,None,...].cpu().numpy(),pred_mask_per_img[None,None,...].cpu().numpy())
+                        mIoU.append(_mIoU)
+                        dice.append(_dice)
+                else:
+                    mIoU.append(0)
+                    dice.append(0)
+                # tuple（mask1,mask2....)
 
                 # targets cxcywh -> original image xxyy         
                 img_h, img_w = imgs_size.unbind(1)
@@ -255,12 +316,24 @@ if __name__ == '__main__':
             progress_bar.set_description(s)
         
         # Visulization the valid prediction result
-        visulization_imgs = []
+        # visulization_imgs = []
         for bs_id in range(len(images)):
             vis_pred = predn[bs_id][predn[bs_id][:,-2]>0.3].cpu().numpy()
-            visulization_imgs.append(visualization_bboxes(ori_img[bs_id], targets[bs_id][:,1:].cpu().numpy(), predn =vis_pred,category_dict=category_dict))
+            vis_img = visualization_bboxes(ori_img[bs_id], targets[bs_id][:,1:].cpu().numpy(), predn =vis_pred,category_dict=category_dict,img_style="Numpy")
+
+            if pred_masks is not None:
+                vis_pred_mask = pred_masks[bs_id][predn[bs_id][:,-2]>0.3]
+                vis_pred_mask = vis_pred_mask.sum(dim=0)
+                vis_pred_mask [vis_pred_mask!=0] =1 #[h,w]
+                vis_img = visualization_masks(vis_img,target_masks[bs_id].cpu().numpy(),pred_mask=vis_pred_mask.cpu().numpy(),img_style="plt")
+            # visulization_imgs.append(wandb.Image(vis_img))
+            visulization_imgs=wandb.Image(vis_img)
 
 
+        mIoU = round(sum(mIoU)/len(mIoU),3)
+        dice = round(sum(dice)/len(dice),3)
+        print(f"epochs: {epoch}, valid_mIoU: ",mIoU)
+        print(f"epochs: {epoch}, valid_dice: ",dice)
                 
         val_stats = [np.concatenate(x, 0) for x in zip(*val_stats)] 
         valid_mean_AP = 0
@@ -287,6 +360,8 @@ if __name__ == '__main__':
         
         if args.wandb_log:
             log_result = {
+                "val/mIoU": mIoU,
+                "val/dice": dice,
                 f"val/mAP_{int(args.mAP_threshold*100)}":valid_mean_AP,
                 "visualization/valid_result":visulization_imgs
                 }

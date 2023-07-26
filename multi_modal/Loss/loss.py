@@ -107,12 +107,10 @@ class ATSSLossComputation(torch.nn.Module):
     # @custom_fwd(cast_inputs=torch.float32)
     def forward(self, outputs, targets,positive_map=None,masks=None):
         indices = self.matcher(outputs, targets,positive_map)
-
-
         losses = {}
         losses.update(self.loss_boxes(outputs, targets, indices))
         losses.update(self.loss_token(outputs, positive_map, indices))
-        losses.update(self.loss_masks(outputs,masks,indices))
+        # losses.update(self.loss_masks(outputs,masks,indices))
 
         
         sum_loss = sum([value * self.args[f"{key}_weight"] for key,value in losses.items()])

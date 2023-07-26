@@ -481,7 +481,7 @@ class Medical_Detecton(All_boxes_Dataset):
 
         mask = np.load(mask_path,allow_pickle=True)
         mask = mask.astype(np.int32)
-        target,_ = mask_2_boxes(mask)
+        target,masks = mask_2_boxes(mask)
         target = torch.tensor(target)
 
         target[:, 1:-1:2].clamp_(min=0, max=w)
@@ -489,6 +489,9 @@ class Medical_Detecton(All_boxes_Dataset):
         keep = (target[:, 4] > target[:, 2]) & (target[:, 3] > target[:, 1])
         target = target[keep]
         target[:,1:-1] = box_ops.box_xyxy_to_cxcywh(target[:,1:-1] / torch.tensor([w, h, w, h], dtype=torch.float32)) # Normalization 
+
+        masks = torch.as_tensor(masks)
+        masks = masks[keep]
 
         categor_names = [self.cat_list[int(cls_id.item())] for cls_id in target[:,-1]]
 
@@ -518,25 +521,25 @@ class Medical_Detecton(All_boxes_Dataset):
                 positive_tokens.append(positive_token)
             one_hot_positive_map = create_positive_map_from_span(self.tokenlizer(captions), positive_tokens)  #Used to train
             one_hot_positive_map[one_hot_positive_map!=0] =1
-            return img_size,img,target,image,captions,one_hot_positive_map,instruction
+            return img_size,img,target,image,captions,one_hot_positive_map,instruction,masks
         else:
-            return img_size,img,target,image,captions
+            return img_size,img,target,image,captions,masks
 
 
     @staticmethod
     def collate_fn(batch):
-        img_size,images,instance_bboxes,ori_img,captions = zip(*batch)
+        img_size,images,instance_bboxes,ori_img,captions,masks = zip(*batch)
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
-        return img_size,images,instance_bboxes,ori_img,list(captions)
+        return img_size,images,instance_bboxes,ori_img,list(captions),masks
 
     @staticmethod
     def collate_fn_for_train(batch):
-        img_size,images,instance_bboxes,ori_img,captions,one_hot_positive_map,instruction = zip(*batch)
+        img_size,images,instance_bboxes,ori_img,captions,one_hot_positive_map,instruction,masks = zip(*batch)
         one_hot_positive_map = torch.cat(one_hot_positive_map, dim=0)
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
-        return img_size,images,instance_bboxes,ori_img,list(captions),one_hot_positive_map,instruction
+        return img_size,images,instance_bboxes,ori_img,list(captions),one_hot_positive_map,instruction,masks
 
 class Medical_SAM(Medical_Detecton):
     def __init__(self, json_path,split,device,transforms=None,is_train=False,tokenizer=None,cfg=None):
@@ -552,7 +555,8 @@ class Medical_SAM(Medical_Detecton):
         image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
         origin_img = cv2.imread(image_path) #BGR
         h,w = origin_img.shape[:2]
-        img = cv2.cvtColor(origin_img, cv2.COLOR_BGR2RGB) #BGR->RGB
+        origin_img = cv2.cvtColor(origin_img, cv2.COLOR_BGR2RGB) #BGR->RGB
+        img = origin_img
 
         # w,h = image.size
         img_size = torch.tensor([h, w])
@@ -629,6 +633,8 @@ class Medical_SAM(Medical_Detecton):
     @staticmethod
     def collate_fn(batch):
         img_size,images,instance_bboxes,ori_img,captions,masks = zip(*batch)
+        images = torch.stack(images,dim=0)
+        masks = torch.cat(masks, dim=0)
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
         return img_size,images,instance_bboxes,ori_img,list(captions),masks
@@ -737,7 +743,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
 def generate_captions_postive_map(instruction,is_train=False):
     if is_train:
         all_category_idx = list(range(len(instruction)))
-        random.shuffle(all_category_idx)
+        # random.shuffle(all_category_idx)
         instruction = [ instruction[c_id] for c_id in all_category_idx]
     captions, cat2tokenspan = build_captions_and_token_span(instruction, True)
     return captions,cat2tokenspan,instruction
