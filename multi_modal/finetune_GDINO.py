@@ -255,7 +255,10 @@ if __name__ == '__main__':
 
                 predn,masks = postprocessor(outputs, imgs_size)
                 pred_masks = post_process_mask_for_GD(masks,imgs_size,valid_mask = inputs.mask,pred_flag=True)
-                pred_masks = select_predn_mask(predn[0],pred_masks[0],0.1)
+                if pred_masks[0].shape[0]==1:
+                    pred_masks =pred_masks[0].squeeze(0)
+                else:
+                    pred_masks = select_predn_mask(predn[0],pred_masks[0],0.1)
                 vis_img = visualization_masks(vis_img,target_masks[0].cpu().numpy(),pred_mask=pred_masks.cpu().numpy(),img_style="plt")
 
                 vis_img =  wandb.Image(vis_img)
@@ -298,7 +301,10 @@ if __name__ == '__main__':
                     pred_masks = post_process_mask_for_GD(pred_masks,imgs_size,valid_mask = inputs.mask,pred_flag=True)
                     target_masks = post_process_mask_for_GD(masks,imgs_size)
                     for per_img_id in range(len(pred_masks)):
-                        pred_mask_per_img = select_predn_mask(predn[per_img_id],pred_masks[per_img_id],0.3)
+                        if pred_masks[per_img_id].shape[0] == 1:
+                            pred_mask_per_img = pred_masks[per_img_id].squeeze(0)
+                        else:
+                            pred_mask_per_img = select_predn_mask(predn[per_img_id],pred_masks[per_img_id],0.3)
                         target_mask_per_img = target_masks[per_img_id] 
                         _mIoU,_dice = mean_iou_and_dice(target_mask_per_img[None,None,...].cpu().numpy(),pred_mask_per_img[None,None,...].cpu().numpy())
                         mIoU.append(_mIoU)
@@ -324,7 +330,10 @@ if __name__ == '__main__':
             vis_pred = predn[bs_id][predn[bs_id][:,-2]>0.3].cpu().numpy()
             vis_img = visualization_bboxes(ori_img[bs_id], targets[bs_id][:,1:].cpu().numpy(), predn =vis_pred,category_dict=category_dict)
             if pred_masks is not None:
-                pred_mask_per_img = select_predn_mask(predn[bs_id],pred_masks[bs_id],0.3)
+                if pred_masks[bs_id].shape[0] == 1:
+                    pred_mask_per_img = pred_masks[bs_id].squeeze(0)
+                else:
+                    pred_mask_per_img = select_predn_mask(predn[bs_id],pred_masks[bs_id],0.3)
                 target_mask_per_img = target_masks[bs_id] 
                 vis_img = visualization_masks(vis_img,target_mask_per_img.cpu().numpy(),pred_mask=pred_mask_per_img.cpu().numpy(),img_style="plt")
             vis_img =  wandb.Image(vis_img)

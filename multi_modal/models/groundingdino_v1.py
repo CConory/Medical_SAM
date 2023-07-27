@@ -199,7 +199,7 @@ class GroundingDINO(nn.Module):
         # self.mask_head = Mask_head_v1(self.hidden_dim, self.hidden_dim, self.nheads, dropout=0)
 
         # 
-        self.mask_transformer=TwoWayTransformer(depth=2, embedding_dim=256,mlp_dim=2048,num_heads=8,)
+        self.mask_transformer=TwoWayTransformer(depth=2, embedding_dim=256,mlp_dim=2048,num_heads=4,)
         self.output_upscaling = nn.Sequential(
             nn.ConvTranspose2d(self.hidden_dim , self.hidden_dim  // 4, kernel_size=2, stride=2),
             LayerNorm2d(self.hidden_dim  // 4),

@@ -109,7 +109,10 @@ class PostProcessGrounding(nn.Module):
         boxes = torch.gather( boxes, 1, topk_boxes.unsqueeze(-1).repeat(1, 1, 4))
 
         if out_masks is not None:
-            masks = torch.gather( out_masks, 1, topk_boxes.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, *(out_masks.shape[-2:])))
+            if out_masks.shape[1]==1:
+                masks = out_masks
+            else:
+                masks = torch.gather( out_masks, 1, topk_boxes.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, *(out_masks.shape[-2:])))
             # masks = F.interpolate(masks,(self.encoder_input_size, self.encoder_input_size),mode="bilinear",align_corners=False,)
         else:
             masks = None
