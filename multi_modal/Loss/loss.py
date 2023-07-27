@@ -142,14 +142,14 @@ class ATSSLossComputation(torch.nn.Module):
         # target_masks, valid = nested_tensor_from_tensor_list(target_masks).decompose()
         # target_masks = target_masks.to(src_masks)
         # version2 or 3
-        # src_idx = self._get_src_permutation_idx(indices)
+        src_idx = self._get_src_permutation_idx(indices)
         # tgt_idx = self._get_tgt_permutation_idx(indices)
-        # src_masks = src_masks[src_idx]
+        src_masks = src_masks[src_idx]
         # target_masks = target_masks[tgt_idx]
 
 
         # version 4
-        src_masks = src_masks.squeeze(1)
+        # src_masks = src_masks.squeeze(1)
         # target_masks = target_masks
         # import pdb;pdb.set_trace()
 
@@ -158,15 +158,15 @@ class ATSSLossComputation(torch.nn.Module):
         src_masks = src_masks[:, 0]
 
         # Version 3; 融合后 会产生更多的mask，可以与bbox 算交集取得更好的效果
-        # pred_masks = []
-        # start_idx = 0
-        # for num in nums:
-        #     end_idx = num+start_idx
-        #     src_mask = src_masks[start_idx:end_idx]
-        #     src_mask = src_mask.sum(dim=0)
-        #     pred_masks.append(src_mask)
-        #     start_idx = end_idx
-        # src_masks = torch.stack(pred_masks)
+        pred_masks = []
+        start_idx = 0
+        for num in nums:
+            end_idx = num+start_idx
+            src_mask = src_masks[start_idx:end_idx]
+            src_mask = src_mask.sum(dim=0)
+            pred_masks.append(src_mask)
+            start_idx = end_idx
+        src_masks = torch.stack(pred_masks)
 
 
         src_masks = src_masks.flatten(1) 

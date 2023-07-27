@@ -91,9 +91,22 @@ def build_dataset_and_dataloader(cfg,args,is_train=False):
     return dataset,dataloader
 
 def select_predn_mask(predn_per_img,pred_mask_per_img,conf_threshold=0.3):
+
     pred_mask_per_img = pred_mask_per_img[predn_per_img[:,-2]>conf_threshold] # 与可视化相同的阈值， 只有 bbox 的conf>0.3 才会发上 masks
     pred_mask_per_img = pred_mask_per_img.sum(dim=0) #instance_mask -> foreground semantic mask
     pred_mask_per_img [pred_mask_per_img!=0] =1 #[h,w]
+
+    if True: #Version3 mask decoder
+        h,w = pred_mask_per_img.shape[-2:]
+        _predn_per_img = predn_per_img[predn_per_img[:,-2]>conf_threshold][:,:4].int()
+        _predn_per_img[::2].clamp(min=0, max=w)
+        _predn_per_img[1::2].clamp(min=0, max=h)
+        _predn_per_img = _predn_per_img
+        bbox_mask = torch.zeros_like(pred_mask_per_img,dtype=torch.bool)
+        for (x1,y1,x2,y2) in _predn_per_img:
+            bbox_mask[y1:y2,x1:x2] = True
+        pred_mask_per_img *= bbox_mask
+
     return pred_mask_per_img
 
 
@@ -206,6 +219,7 @@ if __name__ == '__main__':
 
         # Training process
         for i, (imgs_size, images,targets, ori_img, captions, one_hot_positive_map,instruction,masks) in progress_bar:
+            break
             ni = i + nb * epoch  #num_iteration
             targets = [tmp.to(device) for tmp in targets]
             one_hot_positive_map = one_hot_positive_map.to(device)
