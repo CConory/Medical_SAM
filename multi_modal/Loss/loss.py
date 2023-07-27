@@ -129,23 +129,24 @@ class ATSSLossComputation(torch.nn.Module):
         
         # upsample predictions to the target size
         
-        # tg_masks = []
-        # for target_mask in target_masks:
-        #     target_mask = target_mask.to(src_masks)
-        #     target_mask = target_mask.sum(dim=0)
-        #     target_mask[target_mask!=0] = 1
-        #     tg_masks.append(target_mask)
-        # target_masks = torch.stack(tg_masks)
-        # import pdb;pdb.set_trace()
-        target_masks, valid = nested_tensor_from_tensor_list(target_masks).decompose()
-        target_masks = target_masks.to(src_masks)
+        tg_masks = []
+        nums = []
+        for target_mask in target_masks:
+            nums.append(len(target_mask))
+            target_mask = target_mask.to(src_masks)
+            target_mask = target_mask.sum(dim=0)
+            target_mask[target_mask!=0] = 1
+            tg_masks.append(target_mask)
+        target_masks = torch.stack(tg_masks)
+
+        # target_masks, valid = nested_tensor_from_tensor_list(target_masks).decompose()
+        # target_masks = target_masks.to(src_masks)
         # version2 or 3
         src_idx = self._get_src_permutation_idx(indices)
-        tgt_idx = self._get_tgt_permutation_idx(indices)
+        # tgt_idx = self._get_tgt_permutation_idx(indices)
         src_masks = src_masks[src_idx]
-        target_masks = target_masks[tgt_idx]
+        # target_masks = target_masks[tgt_idx]
 
-        import pdb;pdb.set_trace()
 
         # version 4
         # src_masks = src_masks.squeeze(1)
@@ -157,7 +158,15 @@ class ATSSLossComputation(torch.nn.Module):
                                 mode="bilinear", align_corners=False)
         src_masks = src_masks[:, 0]
 
-
+        pred_masks = []
+        start_idx = 0
+        for num in nums:
+            end_idx = num+start_idx
+            src_mask = src_masks[start_idx:end_idx]
+            src_mask = src_mask.sum(dim=0)
+            pred_masks.append(src_mask)
+            start_idx = end_idx
+        src_masks = torch.stack(pred_masks)
 
         src_masks = src_masks.flatten(1) 
         target_masks = target_masks.flatten(1)
