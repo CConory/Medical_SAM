@@ -29,7 +29,7 @@ class HungarianMatcher(nn.Module):
         self.cost_giou = cost_giou
         assert cost_class != 0 or cost_bbox != 0 or cost_giou != 0, "all costs cant be 0"
 
-    def forward(self, outputs, targets,positive_map=None):
+    def forward(self, outputs, targets,positive_map=None,masks=None):
         """ Performs the matching
 
         Params:
@@ -79,6 +79,8 @@ class HungarianMatcher(nn.Module):
 
             # Compute the giou cost betwen boxes
             cost_giou = -box_ops.generalized_box_iou(box_ops.box_cxcywh_to_xyxy(out_bbox),box_ops.box_cxcywh_to_xyxy(tgt_bbox))
+
+            # 计算mask的代价函数， 随机取N个点，计算其距离
 
             # Final cost matrix
             C = self.cost_bbox * cost_bbox + self.cost_class * ce_loss + self.cost_giou * cost_giou

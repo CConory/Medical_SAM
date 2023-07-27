@@ -90,5 +90,5 @@ warmup_step_patience = 5 # for autostep
 lr_steps = [0.67,0.89]
 
 # others:
-gradient_calculate_step = 8
+gradient_calculate_step = 16
 

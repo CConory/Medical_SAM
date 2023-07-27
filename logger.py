@@ -56,7 +56,7 @@ def visualization_masks(image,target_mask,pred_mask=None,img_style="plt"):
     inter_mask = (pred_mask) & (target_mask)
     show_mask(pred_mask, image.gca(),np.array([0/255, 0/255, 255/255, 0.4]))
     show_mask(target_mask, image.gca(),np.array([0/255, 255/255, 0/255, 0.4]))
-    show_mask(inter_mask, image.gca(),np.array([255/255, 255/255, 0/255, 0.4]))
+    show_mask(inter_mask, image.gca(),np.array([255/255, 0, 0/255, 0.4]))
     return image
 
 def wandb_logger(result,visulization_imgs,args,category_names):

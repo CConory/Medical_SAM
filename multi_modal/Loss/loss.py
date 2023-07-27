@@ -106,7 +106,7 @@ class ATSSLossComputation(torch.nn.Module):
 
     # @custom_fwd(cast_inputs=torch.float32)
     def forward(self, outputs, targets,positive_map=None,masks=None):
-        indices = self.matcher(outputs, targets,positive_map)
+        indices = self.matcher(outputs, targets,positive_map,masks)
         losses = {}
         losses.update(self.loss_boxes(outputs, targets, indices))
         losses.update(self.loss_token(outputs, positive_map, indices))
@@ -123,27 +123,53 @@ class ATSSLossComputation(torch.nn.Module):
         """
         assert "pred_masks" in outputs
 
-        src_idx = self._get_src_permutation_idx(indices)
-        tgt_idx = self._get_tgt_permutation_idx(indices)
 
         src_masks = outputs["pred_masks"]
 
-        src_masks = src_masks[src_idx]
+        
         # upsample predictions to the target size
+        
+        # tg_masks = []
+        # for target_mask in target_masks:
+        #     target_mask = target_mask.to(src_masks)
+        #     target_mask = target_mask.sum(dim=0)
+        #     target_mask[target_mask!=0] = 1
+        #     tg_masks.append(target_mask)
+        # target_masks = torch.stack(tg_masks)
+        # import pdb;pdb.set_trace()
         target_masks, valid = nested_tensor_from_tensor_list(target_masks).decompose()
         target_masks = target_masks.to(src_masks)
+        # version2 or 3
+        src_idx = self._get_src_permutation_idx(indices)
+        tgt_idx = self._get_tgt_permutation_idx(indices)
+        src_masks = src_masks[src_idx]
         target_masks = target_masks[tgt_idx]
+
+        import pdb;pdb.set_trace()
+
+        # version 4
+        # src_masks = src_masks.squeeze(1)
+        # target_masks = target_masks
+        # import pdb;pdb.set_trace()
+
+
         src_masks = interpolate(src_masks[:, None], size=target_masks.shape[-2:],
                                 mode="bilinear", align_corners=False)
-        src_masks = src_masks[:, 0].flatten(1)
+        src_masks = src_masks[:, 0]
 
-        start_idx = 0
-        _target_masks = []
-        for _,i in indices:
-            end_idx = start_idx+len(i)
-            _target_masks.append(target_masks[start_idx:end_idx][i])
-            start_idx = end_idx
-        target_masks = torch.cat(_target_masks, dim=0).flatten(1)
+
+
+        src_masks = src_masks.flatten(1) 
+        target_masks = target_masks.flatten(1)
+
+        # version 1
+        # start_idx = 0
+        # _target_masks = []
+        # for _,i in indices:
+        #     end_idx = start_idx+len(i)
+        #     _target_masks.append(target_masks[start_idx:end_idx][i])
+        #     start_idx = end_idx
+        # target_masks = torch.cat(_target_masks, dim=0).flatten(1)
 
         losses = {
             "loss_mask": sigmoid_focal_loss(src_masks, target_masks),

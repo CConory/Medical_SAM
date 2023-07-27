@@ -24,8 +24,7 @@ class MHAttentionMap(nn.Module):
         nn.init.xavier_uniform_(self.q_linear.weight)
         self.normalize_fact = float(hidden_dim / self.num_heads) ** -0.5
 
-    def forward(self, q, k, mask=None):
-
+    def forward(self, q, ks, mask=None):
         q = self.q_linear(q)
         k = F.conv2d(k, self.k_linear.weight.unsqueeze(-1).unsqueeze(-1), self.k_linear.bias)
         qh = q.view(q.shape[0], q.shape[1], self.num_heads, self.hidden_dim // self.num_heads)
@@ -37,6 +36,50 @@ class MHAttentionMap(nn.Module):
         weights = self.dropout(weights)
         return weights
 
+class Mask_head_v1(nn.Module):
+    def __init__(self, query_dim, hidden_dim, num_heads, dropout=0, bias=True):
+        super().__init__()
+        self.num_heads = num_heads
+        self.hidden_dim = hidden_dim
+        self.dropout = nn.Dropout(dropout)
+
+        self.q_linear = nn.Linear(query_dim, hidden_dim, bias=bias)
+        self.k_linear = nn.Linear(query_dim, hidden_dim, bias=bias)
+
+        nn.init.zeros_(self.k_linear.bias)
+        nn.init.zeros_(self.q_linear.bias)
+        nn.init.xavier_uniform_(self.k_linear.weight)
+        nn.init.xavier_uniform_(self.q_linear.weight)
+        self.normalize_fact = float(hidden_dim) ** -0.5
+
+    
+    def atten_scores(self,q,k,mask):
+        weight = torch.einsum("bqc,bchw->bqhw", q * self.normalize_fact, k)
+        if mask is not None:
+            weight.masked_fill_(mask.unsqueeze(1), float("-inf"))
+        # weight = F.softmax(weight.flatten(2), dim=-1).view_as(weight)
+        return weight
+
+    def forward(self, q, ks, fpns=[],masks=None):
+        
+        assert len(fpns)+1 == len(ks)
+
+        q = self.q_linear(q)
+        k = ks[-1]
+        k = F.conv2d(k, self.k_linear.weight.unsqueeze(-1).unsqueeze(-1), self.k_linear.bias)
+        weight = self.atten_scores(q,k,masks[-1])
+        ks = ks[:-1]
+
+        for f_level,k in enumerate(ks[::-1]):
+            weight = F.interpolate(weight, k.shape[-2:], mode="bilinear", align_corners=False)
+            k = F.conv2d(k, self.k_linear.weight.unsqueeze(-1).unsqueeze(-1), self.k_linear.bias)
+            weight += self.atten_scores(q,k,masks[-2-f_level])
+
+        return weight
+
+
+
+
 class MaskHeadAsSam(nn.Module):
     def __init__(
         self,
@@ -44,6 +87,12 @@ class MaskHeadAsSam(nn.Module):
         context_dim,
         activation: Type[nn.Module] = nn.GELU,):
         super().__init__()
+
+        nheads = dim-context_dim
+        self.lay0 = torch.nn.Conv2d(context_dim, nheads, 3, padding=1)
+        self.gn0 = torch.nn.GroupNorm(8, nheads)
+        context_dim = nheads
+        dim = nheads+context_dim
         self.output_upscaling = nn.Sequential(
             nn.ConvTranspose2d(context_dim, context_dim // 4, kernel_size=2, stride=2),
             LayerNorm2d(context_dim // 4),
@@ -51,6 +100,7 @@ class MaskHeadAsSam(nn.Module):
             nn.ConvTranspose2d(context_dim // 4, context_dim // 8, kernel_size=2, stride=2),
             activation(),
         )
+       
         self.lay1 = torch.nn.Conv2d(dim, dim, 3, padding=1)
         self.gn1 = torch.nn.GroupNorm(8, dim)
         self.lay2 = torch.nn.Conv2d(dim, context_dim, 3, padding=1)
@@ -65,6 +115,8 @@ class MaskHeadAsSam(nn.Module):
         def expand(tensor, length):
             return tensor.unsqueeze(1).repeat(1, int(length), 1, 1, 1).flatten(0, 1)
         
+        x = self.lay0(x) # 2,256,h,w -> bs, 8, h,w
+        x = self.gn0(x)
         x = torch.cat([expand(x, bbox_mask.shape[1]), bbox_mask.flatten(0, 1)], 1)
         x = self.lay1(x)
         x = self.gn1(x)
