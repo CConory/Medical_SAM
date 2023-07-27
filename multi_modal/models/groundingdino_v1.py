@@ -386,20 +386,20 @@ class GroundingDINO(nn.Module):
         # outputs_mask = self.mask_head(hs[-1],memory,srcs[:-1],masks)
 
         # version2
-        mask_embed = self.mask_embed( hs[-1])
-        mask_features = srcs[0]
-        outputs_mask = torch.einsum("bqc,bchw->bqhw", mask_embed, mask_features)
-        out["pred_masks"] = outputs_mask
+        # mask_embed = self.mask_embed( hs[-1])
+        # mask_features = srcs[0]
+        # outputs_mask = torch.einsum("bqc,bchw->bqhw", mask_embed, mask_features)
+        # out["pred_masks"] = outputs_mask
 
         # version 3
         # outputs_mask = torch.einsum("bqc,bchw->bqhw", hs[-1], memory)
 
         # Version 4 based on SAM decoder
-        # hs, src = self.mask_transformer(srcs[0],poss[0],hs[-1])
-        # b,c,h,w = srcs[0].shape
-        # src = src.transpose(1, 2).view(b, c, h, w) #[1,h/8*w/8,256] -> [1,256,h/8,w/8]
-        # upscaled_embedding = self.output_upscaling(src) #[1,32,h/2,w/2]
-        # out["pred_masks"] = upscaled_embedding
+        hs, src = self.mask_transformer(srcs[0],poss[0],hs[-1])
+        b,c,h,w = srcs[0].shape
+        src = src.transpose(1, 2).view(b, c, h, w) #[1,h/8*w/8,256] -> [1,256,h/8,w/8]
+        upscaled_embedding = self.output_upscaling(src) #[1,32,h/2,w/2]
+        out["pred_masks"] = upscaled_embedding
         return out
 
 
