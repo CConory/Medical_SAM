@@ -81,7 +81,7 @@ def build_dataset_and_dataloader(cfg,args,is_train=False):
     shuffle = True if is_train else False
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=2,
+        batch_size=4,
         num_workers=4,
         shuffle=shuffle,
         pin_memory=False,
@@ -219,7 +219,6 @@ if __name__ == '__main__':
 
         # Training process
         for i, (imgs_size, images,targets, ori_img, captions, one_hot_positive_map,instruction,masks) in progress_bar:
-            break
             ni = i + nb * epoch  #num_iteration
             targets = [tmp.to(device) for tmp in targets]
             one_hot_positive_map = one_hot_positive_map.to(device)

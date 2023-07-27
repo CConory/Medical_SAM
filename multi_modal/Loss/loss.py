@@ -158,12 +158,31 @@ class ATSSLossComputation(torch.nn.Module):
         src_masks = src_masks[:, 0]
 
         # Version 3; 融合后 会产生更多的mask，可以与bbox 算交集取得更好的效果
+        # Version 5; Based on Version 3, based on the matcher predict bbox and then generate the bbox mask
+        # To get bbox_mask & generate_mask; to having a more focus on the segmentation result on the bbox area
+        src_boxes = outputs['pred_boxes'][src_idx]
+
         pred_masks = []
         start_idx = 0
+        h,w = src_masks.shape[-2:]
         for num in nums:
             end_idx = num+start_idx
             src_mask = src_masks[start_idx:end_idx]
             src_mask = src_mask.sum(dim=0)
+
+            #version 5 
+            src_boxes_per_img = src_boxes[start_idx:end_idx]
+            src_boxes_per_img = box_ops.box_cxcywh_to_xyxy(src_boxes_per_img)
+            src_boxes_per_img.clamp(min=0, max=1)
+            src_boxes_per_img[::2] *= w
+            src_boxes_per_img[1::2] *= h
+            src_boxes_per_img = src_boxes_per_img.int()
+            bbox_mask = torch.zeros_like(src_mask,dtype=torch.bool)
+            for (x1,y1,x2,y2) in src_boxes_per_img:
+                bbox_mask[y1:y2,x1:x2] = True
+            
+            src_mask *= bbox_mask
+
             pred_masks.append(src_mask)
             start_idx = end_idx
         src_masks = torch.stack(pred_masks)
