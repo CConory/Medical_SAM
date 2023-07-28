@@ -38,3 +38,6 @@ python ./visualization.py
 Class values:
 1. non-neoplastic polyps
 2. neoplastic polyps
+
+description:
+* Segment and detect polyps and tumors in colonoscopy videos

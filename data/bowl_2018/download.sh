@@ -1,5 +1,5 @@
 # 下载ZIP文件
-zip_url="https://storage.googleapis.com/kagglesdsdata/competitions/8089/44321/stage1_train.zip?GoogleAccessId=web-data@kaggle-161607.iam.gserviceaccount.com&Expires=1688814502&Signature=ioOjyAv5gskF5ztP%2FYEookhKiRNzhe1dtxW02ednPVADrQHjG5ZiYRCGT9%2FZVXS2uvlrlAjX2imdGtA5UwVV%2FwGX6%2FZGT6JFnNEFhcU%2BQU%2BpkRmt2wFrNQ5tZQLtL4%2BCGkfLJko4%2FNll9e4HG3zlgjg1xR4nlKcNpfhyrFqlnw92aAd8m8fKSFNW5bVAmqgD4hEBAV%2FAl82nZsSCQmSWi1D6Dni6cAWxO5zCzKrlYjC4cIbi7rKvWvsDPNXdW3uftJOjZF2p60sFOyDzSfjSKd0XNJ%2Fh7fwy6FJC7%2FwBKQjOXaq3TVXb03H6%2F1IwhFB8tp56oJuAn%2Bzp6u3seLA3kw%3D%3D&response-content-disposition=attachment%3B+filename%3Dstage1_train.zip"
+zip_url="https://storage.googleapis.com/kaggle-competitions-data/kaggle-v2/8089/44321/bundle/archive.zip?GoogleAccessId=web-data@kaggle-161607.iam.gserviceaccount.com&Expires=1690790098&Signature=eaG9MC3ixq2JOsTlESyed3zmt%2FU6XJ1xuEe%2BR%2Bb5BGVc5%2FBwWdwWIK3oeCZBNnhR3zlxCHmif4J2anv%2FC%2Fd5UOanuXnmt8wosck60QOu%2FFqdhChmn2%2FBcjKyFPKjZeXG4yfbZFZ%2FTw9svbV9nziJ2haGTeXeaqkfq%2B1mdv3LUhcZKMJ%2BIwSjgZ90nc1MsnEoTnrX3e9UoeGVpTyyqH6ay%2FD9Sis1%2Fj7FiyAXZDAfN6rdwcY3wCQkKo4SQRcu2cH9iwdLk6Ay0i2u9mlFPqL1FiZitrahwXA904CelCQZrYhuHoZC4emdua7%2BlX237LwgoBP3mU%2FtgB12ERI6PoYc9g%3D%3D&response-content-disposition=attachment%3B+filename%3Ddata-science-bowl-2018.zip"
 zip_file="bowl_2018.zip"
 download_folder="."
 

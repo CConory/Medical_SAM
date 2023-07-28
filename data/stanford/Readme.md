@@ -40,3 +40,6 @@ class:
 7. mountain
 8. foreground
 9. unknown
+
+description:
+1. The dataset contains 715 images chosen from public datasets: LabelMe, MSRC, PASCAL VOC and Geometric Context. The selection criteria were for the images were of outdoor scenes

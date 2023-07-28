@@ -58,3 +58,6 @@ classes:
 19. angioinvasion
 20. dcis
 21. other
+
+description: 
+1. The NuCLS datasets contain over 220,000 labeled nuclei from breast cancer images from TCGA. 

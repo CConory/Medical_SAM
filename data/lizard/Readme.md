@@ -38,3 +38,6 @@ classes:
 4. Plasma
 5. Neutrophil
 6. Connective tissue
+
+description:
+1. colonic nuclear instance segmentation and classification

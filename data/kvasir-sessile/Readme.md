@@ -37,3 +37,6 @@ python ./visualization.py
 ```
 Class values:
 1. polyps
+
+description: 
+1. Multiclass image dataset for gastrointestinal disease detection

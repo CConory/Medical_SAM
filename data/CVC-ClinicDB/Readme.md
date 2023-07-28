@@ -37,3 +37,6 @@ python ./visualization.py
 ```
 Class values:
 1. polyps
+
+description:
+* polyp detection in colonoscopy videos

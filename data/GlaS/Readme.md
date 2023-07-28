@@ -37,3 +37,6 @@ python ./visualization.py
 ```
 Class values:
 1. colorectal adenocarcinoma
+
+description:
+1. gland segmentation 

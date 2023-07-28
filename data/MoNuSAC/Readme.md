@@ -40,3 +40,6 @@ class:
 3. Neutrophil
 4. Macrophage
 5. Ambiguous
+
+description: 
+* H&E stained tissue images of four organs ((Lung, Prostate, Kidney, and Breast)) with annotations of multiple cell-types including epithelial cells, lymphocytes, macrophages, and neutrophils.

@@ -1,5 +1,5 @@
 # 下载ZIP文件
-zip_url="https://zenodo.org/record/1175282/files/TNBC_NucleiSegmentation.zip?download=1"
+zip_url="https://zenodo.org/record/2579118/files/TNBC_NucleiSegmentation.zip?download=1"
 zip_file="TNBC.zip"
 download_folder="."
 
