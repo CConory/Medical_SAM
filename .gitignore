@@ -1,6 +1,12 @@
+datasets/
+datasets/*
 datasets/*/*
-datasets/*.*
+data/*/*
+data/*.*
+# datasets/*/*
+# datasets/*.*
 weights/*
+multi_modal/weights
 __pycache__/
 *.jpg
 *.png
