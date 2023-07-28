@@ -26,7 +26,7 @@ def get_path(dataset_dir,file_name,suffix):
     mask_path = os.path.join(dataset_dir,"masks",file_name.replace(suffix,".npy"))
     return image_path,feature_path,mask_path
 
-def mask_2_boxes(mask):
+def mask_2_boxes(mask,category_start_idx=0):
     mask = mask.astype(np.int32)
 
     
@@ -46,7 +46,7 @@ def mask_2_boxes(mask):
                 c1 = cv2.boundingRect((labels==i).astype(np.uint8)*255)
                 if c1[2]<=0 or c1[3]<=0:
                     continue
-                instance_bboxes.append([0,c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3],category_idx]) # bs_id, x1y1x2y2, class_index 
+                instance_bboxes.append([0,c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3],category_idx+category_start_idx]) # bs_id, x1y1x2y2, class_index 
                 _mask = (labels==i).astype(np.float)
                 masks.append(_mask)
     if len(instance_bboxes):
@@ -59,10 +59,23 @@ def mask_2_boxes(mask):
 
 class Dataset(data.Dataset):
     def __init__(self, json_path,split,device):
-        with open(json_path, 'r') as f:
-            ds_dict = json.load(f)
-        self.dataset_dir = os.path.dirname(json_path)
-        self.file_names = ds_dict[split]
+        
+        self.file_names = []
+        if isinstance(json_path, str):
+            with open(json_path, 'r') as f:
+                ds_dict = json.load(f)
+            dataset_dir = os.path.dirname(json_path)
+            file_names = ds_dict[split]
+            file_paths = [os.path.join(dataset_dir,tmp) for tmp in file_names]
+            self.file_names.extend(file_paths)
+        else:
+            for json_path_per_dataset in json_path:
+                with open(json_path_per_dataset, 'r') as f:
+                    ds_dict = json.load(f)
+                dataset_dir = os.path.dirname(json_path_per_dataset)
+                file_names = ds_dict[split]
+                file_paths = [os.path.join(dataset_dir,tmp) for tmp in file_names]
+                self.file_names.extend(file_paths)
         self.nF = len(self.file_names)
         self.device = device
     def __len__(self):
@@ -448,17 +461,30 @@ class Medical_Detecton(All_boxes_Dataset):
         super().__init__(json_path, split,device)
         self._transforms = transforms
         self.is_train = is_train
-        dataset_name = json_path.split("/")[-2]
+        # dataset_name = json_path.split("/")[-2]
 
         '''
             能让类别跟对应的instruction区分开，并且在后处理的时候能关联起来
         '''
-        self.cat_list = ["vessel","glomerulus","unsure"]
+        dataset_names = ["HuBMAP","bowl_2018"]
+        cat_list = [
+            ["vessel","glomerulus","unsure"], #HuBMAP
+            ["Nuclei"] #bowl_2018
+        ]
+
+        self.cat_list = []
+        self.dataset_category_idx_start = {}
+        for dataset_id in range(len(dataset_names)):
+            self.dataset_category_idx_start[dataset_names[dataset_id]] =len(self.cat_list )
+            self.cat_list.extend(cat_list[dataset_id])
+
+
         # self.cat_list = ["vessel"]
         instruction = [
                 ["arterioles, capillaries or venules tissue"], # for category: 0
                 ["glomerulus tissue"], #for category:1
                 ["unsure tissue","unsure"], # for category:2
+                ['nuclei'], # for category:3, 注意小写
                 ["normal_cell","cell","tissue"]
             ] # for others
         self.instruction = []
@@ -468,20 +494,24 @@ class Medical_Detecton(All_boxes_Dataset):
             if instr_id < len(self.cat_list):
                 self.cat_2_instruction[self.cat_list[instr_id]] = instruction[instr_id]
         
+        
         if self.is_train:
             assert tokenizer is not None
             self.tokenlizer = tokenizer
     def __getitem__(self, index):
-        file_name = self.file_names[index]
+        file_path= self.file_names[index]
+        dir_path = os.path.dirname(file_path)
+        file_name = os.path.basename(file_path)
         suffix = os.path.splitext(file_name)[1]
-        image_path,feature_path,mask_path  = get_path(self.dataset_dir,file_name,suffix)
-        image = Image.open(image_path)
+        category_start_idx = self.dataset_category_idx_start[dir_path.split("/")[-1]]
+        image_path,feature_path,mask_path  = get_path(dir_path,file_name,suffix)
+        image = Image.open(image_path).convert('RGB')
         w,h = image.size
         img_size = torch.tensor([h, w])
 
         mask = np.load(mask_path,allow_pickle=True)
         mask = mask.astype(np.int32)
-        target,masks = mask_2_boxes(mask)
+        target,masks = mask_2_boxes(mask,category_start_idx)
         target = torch.tensor(target)
 
         target[:, 1:-1:2].clamp_(min=0, max=w)
@@ -503,7 +533,7 @@ class Medical_Detecton(All_boxes_Dataset):
         # import pdb;pdb.set_trace()
         if self._transforms is not None:
             img,_ = self._transforms(image,None)
-
+ 
         # generation caption instruction and target_class for the corresponding positive
         instruction = self.instruction.copy() 
         if self.is_train:

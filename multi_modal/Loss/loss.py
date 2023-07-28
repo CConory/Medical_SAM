@@ -136,11 +136,12 @@ class ATSSLossComputation(torch.nn.Module):
             target_mask = target_mask.to(src_masks)
             target_mask = target_mask.sum(dim=0)
             target_mask[target_mask!=0] = 1
-            tg_masks.append(target_mask)
-        target_masks = torch.stack(tg_masks)
+            tg_masks.append(target_mask[None,...])
+        # target_masks = torch.stack(tg_masks)
 
-        # target_masks, valid = nested_tensor_from_tensor_list(target_masks).decompose()
-        # target_masks = target_masks.to(src_masks)
+        target_masks, valid = nested_tensor_from_tensor_list(tg_masks).decompose()
+        target_masks =target_masks.squeeze(1)
+        target_masks = target_masks.to(src_masks)
         # version2 or 3
         src_idx = self._get_src_permutation_idx(indices)
         # tgt_idx = self._get_tgt_permutation_idx(indices)
@@ -155,6 +156,7 @@ class ATSSLossComputation(torch.nn.Module):
 
         src_masks = interpolate(src_masks[:, None], size=target_masks.shape[-2:],
                                 mode="bilinear", align_corners=False)
+
         src_masks = src_masks[:, 0]
 
         # Version 3; 融合后 会产生更多的mask，可以与bbox 算交集取得更好的效果

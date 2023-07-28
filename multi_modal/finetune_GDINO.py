@@ -73,15 +73,22 @@ def build_dataset_and_dataloader(cfg,args,is_train=False):
     else:
         dataset_root_dir = "../data"
         dataset_name = args.dataset
-        dataset_dir = os.path.join(dataset_root_dir,dataset_name)
+        if len(dataset_name.split(","))>1:
+            dataset_name = dataset_name.split(",")
+            dataset_dir = [os.path.join(dataset_root_dir,_tmp) for _tmp in dataset_name]
+            json_path = [os.path.join(_tmp,"data_split.json") for _tmp in dataset_dir]
+        else:
+            dataset_dir = os.path.join(dataset_root_dir,dataset_name)
+            json_path = os.path.join(dataset_dir,"data_split.json")
+
         dataset_type = "train" if is_train else "valid"
-        dataset = Medical_Detecton(os.path.join(dataset_dir,"data_split.json"),dataset_type,device,transform,is_train=is_train,tokenizer=tokenlizer)
+        dataset = Medical_Detecton(json_path,dataset_type,device,transform,is_train=is_train,tokenizer=tokenlizer)
         collate_fn = Medical_Detecton.collate_fn_for_train if is_train else Medical_Detecton.collate_fn
     
     shuffle = True if is_train else False
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=4,
+        batch_size=2,
         num_workers=4,
         shuffle=shuffle,
         pin_memory=False,
