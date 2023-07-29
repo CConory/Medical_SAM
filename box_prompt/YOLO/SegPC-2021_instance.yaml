@@ -1,0 +1,7 @@
+path: '/root/autodl-tmp/Medical_SAM/data/SegPC-2021/'
+train: 'train_ins/images'
+val: 'valid_ins/images'
+
+# class names
+names: 
+  0: 'Cell'

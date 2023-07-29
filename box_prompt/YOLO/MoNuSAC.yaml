@@ -1,0 +1,11 @@
+path: '/root/autodl-tmp/Medical_SAM/data/MoNuSAC/'
+train: 'train/images'
+val: 'valid/images'
+
+# class names
+names: 
+  0: 'Epithelial'
+  1: 'Lymphocyte'
+  2: 'Neutrophil'
+  3: 'Macrophage'
+  4: 'Ambiguous'

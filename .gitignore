@@ -23,3 +23,13 @@ wandb/
 !*.sh
 !*.md
 !data_split.json
+
+
+*.bmp
+box_prompt/YOLO/pretrained/*
+box_prompt/YOLO/pretrained2/*
+box_prompt/YOLO/runs/*
+box_prompt/YOLO/weights/*
+box_prompt/YOLO_SAM/wandb/
+.ipynb_checkpoints/
+.DS_Store
