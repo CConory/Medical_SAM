@@ -42,3 +42,4 @@ Argument:
 --name: the path of the training weights directory
 ```
 
+Our pretrained weighs released here: https://drive.google.com/file/d/1cmu4aGJfCgoo1CFGHL15V9smaOzNa7PL/view?usp=sharing
