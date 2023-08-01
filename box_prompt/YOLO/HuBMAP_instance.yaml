@@ -1,0 +1,7 @@
+path: '/root/autodl-tmp/Medical_SAM/data/HuBMAP/'
+train: 'train_ins/images'
+val: 'valid_ins/images'
+
+# class names
+names: 
+  0: 'instance'

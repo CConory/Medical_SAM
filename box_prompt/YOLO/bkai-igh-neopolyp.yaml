@@ -1,0 +1,8 @@
+path: '/root/autodl-tmp/Medical_SAM/data/bkai-igh-neopolyp/'
+train: 'train/images'
+val: 'valid/images'
+
+# class names
+names: 
+  0: 'non-neoplastic polyps'
+  1: 'neoplastic polyps'

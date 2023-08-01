@@ -1,0 +1,13 @@
+path: '/root/autodl-tmp/Medical_SAM/data/CoNSeP/'
+train: 'train/images'
+val: 'valid/images'
+
+# class names
+names: 
+  0: 'other'
+  1: 'inflammatory'
+  2: 'healthy epithelial'
+  3: 'dysplastic/malignant epithelial'
+  4: 'fibroblast'
+  5: 'muscle'
+  6: 'endothelial'

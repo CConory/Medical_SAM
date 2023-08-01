@@ -1,0 +1,12 @@
+path: '/root/autodl-tmp/Medical_SAM/data/lizard/'
+train: 'train/images'
+val: 'valid/images'
+
+# class names
+names: 
+  0: 'Neutrophil'
+  1: 'Epithelial'
+  2: 'Lymphocyte'
+  3: 'Plasma'
+  4: 'Neutrophil'
+  5: 'Connective tissue'
