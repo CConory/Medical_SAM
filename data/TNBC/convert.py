@@ -12,7 +12,7 @@ if not os.path.exists(save_mask_path):
 
 import os
 
-dataset_path = "TNBC_NucleiSegmentation"
+dataset_path = "TNBC"
 
 # 遍历Slide文件夹和GT文件夹
 for slide_folder, gt_folder in zip(range(1, 12), range(1, 12)):

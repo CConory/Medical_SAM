@@ -1,0 +1,6 @@
+# 下载ZIP文件
+zip_url="https://storage.googleapis.com/kaggle-data-sets/930614/1574219/bundle/archive.zip?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=gcp-kaggle-com%40kaggle-161607.iam.gserviceaccount.com%2F20230728%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20230728T074506Z&X-Goog-Expires=259200&X-Goog-SignedHeaders=host&X-Goog-Signature=1803f25c6021e3acfa41a1f1e2e173c8fac7b8fa6d52857e5f8fe45f7ac1c744c468ca3350e694ff43d59e4f5e944ff889286f337bef16c23aba92c948a5fdba08a1996b5ae415674a0fa65d5295f40b2a2d4a0c5aa0f6f73309d15de034512f646532554baf9fc8e7d984731421f8c8ecbc8a8bda0d57c8fae1dbc945ac61826b0d4385efab567dc4b26a95c58eb80468babf268b7ef2f190643f274c96b6505a908d6577b36b8f752fbec1132590a6f3348247586834d80f62a454201633de3c1fbf8e566d7326f9cbc7787ff68d0cf2c2c960989ffa5aa2bd7d4fbeebaf4b9ccb24cd3752fa9d8e274e5c79d94fe30bca64050e90e02d1dfc733ed379d51a"
+zip_file="CVC-ClinicDB.zip"
+download_folder="."
+
+wget -O "$download_folder/$zip_file" "$zip_url"

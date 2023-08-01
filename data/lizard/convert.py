@@ -20,7 +20,7 @@ import multiprocessing
 
 
 def convert_from_differ_dir(img_names):
-    label_dir = "./lizard_labels/Lizard_Labels/Labels"
+    label_dir = "./lizard/lizard_labels/Lizard_Labels/Labels"
     for img_name in tqdm(img_names):
         label_path = os.path.join(label_dir,img_name+".mat")
         label = sio.loadmat(label_path)
@@ -56,8 +56,8 @@ if __name__ == '__main__':
     if not os.path.exists(save_mask_path):
         os.makedirs(save_mask_path)
 
-    img_dir1 = "./lizard_images1/Lizard_Images1"
-    img_dir2 = "./lizard_images2/Lizard_Images2"
+    img_dir1 = "./lizard/lizard_images1/Lizard_Images1"
+    img_dir2 = "./lizard/lizard_images2/Lizard_Images2"
     img_dir = "./images"
     img_names = os.listdir(img_dir)
     img_names = [os.path.splitext(tmp)[0] for tmp in img_names]

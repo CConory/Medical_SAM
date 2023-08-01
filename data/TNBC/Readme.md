@@ -34,3 +34,9 @@ python ./visualization.py
 ```
 python ../data_split.py --dataset TNBC
 ```
+
+class:
+1. nuclei
+
+description:
+1. Inolves an annotated a large number of cells, including normal epithelial and myoepithelial breast cells (localized in ducts and lobules), invasive carcinomatous cells, fibroblasts, endothelial cells, adipocytes, macrophages and inflammatory cells (lymphocytes and plasmocytes).

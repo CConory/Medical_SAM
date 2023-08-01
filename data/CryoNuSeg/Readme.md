@@ -36,3 +36,8 @@ python ./visualization.py
 python ../data_split.py --dataset xxx
 ```
 
+class:
+1. nuclei
+
+description:
+*  nuclei extracted from adrenal gland, larynx, lymph nodes, mediastinum, pancreas, pleura, skin, testes, thymus, and thyroid gland

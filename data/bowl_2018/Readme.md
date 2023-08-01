@@ -36,3 +36,9 @@ python ./visualization.py
 # Run the script 
 python ../data_split.py --dataset xxx
 ```
+
+class:
+1. nuclei
+
+description:
+* It includes cell types, magnifications and imaging modalities (bright field or fluorescence) from different conditions and variations.

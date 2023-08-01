@@ -10,9 +10,9 @@ if not os.path.exists(save_img_path):
 if not os.path.exists(save_mask_path):
     os.makedirs(save_mask_path)
 
-imgs_path = "./rgbs_colorNormalized"
+imgs_path = "./NuCLS/rgbs_colorNormalized"
 
-masks_path = "./NuCLS_masks"
+masks_path = "./NuCLS/NuCLS_masks"
 
 img_names = os.listdir(imgs_path)
 

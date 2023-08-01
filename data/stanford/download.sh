@@ -1,0 +1,6 @@
+# 下载ZIP文件
+zip_url="https://storage.googleapis.com/kaggle-data-sets/894296/1517291/bundle/archive.zip?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=gcp-kaggle-com%40kaggle-161607.iam.gserviceaccount.com%2F20230728%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20230728T063340Z&X-Goog-Expires=259200&X-Goog-SignedHeaders=host&X-Goog-Signature=9f97cd47e081a56333deea64134bbe2772d56d9bad493a1bb43387afb487fdb16b452a051705e18d78ecdfad3a88e2baec60b4b41b8474b20197d8980e9697a4bb79ea8d26127d7ace7d0079953a2ccd19bece6a4e3af7d81169bb3bff85668a3f00b0d47d544a58a19a0a438ecafaeb7f04d304f694c78ea27bad5c289a74325f2dd6097f961ca665411f8b07014a11438d753c5a539675cad67ab9407d617e0bc9cd6532ee2c9b251f396281295703ade4b976a20e1c032a6dea4582ba3fd1ab010470fe88f949d41f79531ced3185105673dad8d199f00a627d0d445f2fa139f84dcad680a625b0133a2d79a6de97434bff9c285c29a761c45c152fc2cd8e"
+zip_file="stanford.zip"
+download_folder="."
+
+wget -O "$download_folder/$zip_file" "$zip_url"

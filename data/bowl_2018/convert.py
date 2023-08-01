@@ -10,7 +10,7 @@ if not os.path.exists(save_img_path):
 if not os.path.exists(save_mask_path):
     os.makedirs(save_mask_path)
 
-root_path = "./stage1_train"
+root_path = "./bowl_2018"
 train_ids = next(os.walk(root_path))[1]
 
 for file_name in tqdm(train_ids):

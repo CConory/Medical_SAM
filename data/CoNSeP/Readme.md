@@ -43,3 +43,6 @@ Class values:
 5. fibroblast
 6. muscle
 7. endothelial
+
+description:
+* The images were extracted from 16 colorectal adenocarcinoma (CRA) WSIs, each belonging to an individual patient,

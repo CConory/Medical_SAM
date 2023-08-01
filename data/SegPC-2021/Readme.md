@@ -35,5 +35,8 @@ python ./visualization.py
 
 ```
 class:
-1. Core
-2. Cell
+1. MM Plasma core
+2. MM Plasma cell
+
+Description:
+1. It provides a massive data set of 298 training images, 200 validation images, and 277 test images, all of which have been color-normalized. Each image in the dataset is labeled with a corresponding nucleus and cytoplasm

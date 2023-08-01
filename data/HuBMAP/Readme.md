@@ -41,3 +41,6 @@ class:
 1. blood_vessel
 2. glomerulus
 3. unsure
+
+description:
+1. Segment instances of microvascular structures from healthy human kidney tissue slides.

@@ -45,8 +45,8 @@ if __name__ == '__main__':
     if not os.path.exists(save_mask_path):
         os.makedirs(save_mask_path)
 
-    data_dir1 = "./CoNSeP/Train"
-    data_dir2 = "./CoNSeP/Test"
+    data_dir1 = "./CoNSeP/CoNSeP/Train"
+    data_dir2 = "./CoNSeP/CoNSeP/Test"
 
     convert_from_differ_dir(data_dir1)
     convert_from_differ_dir(data_dir2)

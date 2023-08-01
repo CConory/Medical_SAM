@@ -26,7 +26,7 @@ if not os.path.exists(save_mask_path):
 def convert_from_different(root_dir):
     img_dir = os.path.join(root_dir,"x")
     img_names = os.listdir(img_dir)
-    img_names = [os.path.splitext(tmp)[0] for tmp in img_names ]
+    img_names = [os.path.splitext(tmp)[0] for tmp in img_names]
     target_dir = os.path.join(root_dir,"y")
     target_names = os.listdir(target_dir)
 

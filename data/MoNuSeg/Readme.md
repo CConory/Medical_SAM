@@ -34,3 +34,6 @@ cd ..
 # Run the script 
 python ./visualization.py
 ```
+
+description:
+1. This dataset was created by downloading H&E stained tissue images captured at 40x magnification from TCGA archive
