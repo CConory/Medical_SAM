@@ -189,6 +189,10 @@ object_density = []
 image_categories = []
 image_sizes = []
 category_counts = {}
+<<<<<<< HEAD
+=======
+
+>>>>>>> main
 for filename in os.listdir(images_folder):
     # 读取图像
     image_path = os.path.join(images_folder, filename)

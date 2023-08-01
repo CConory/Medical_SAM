@@ -1,0 +1,26 @@
+datasets/
+datasets/*
+datasets/*/*
+data/*/*
+data/*.*
+# datasets/*/*
+# datasets/*.*
+weights/*
+multi_modal/weights
+multi_modal/results
+__pycache__/
+*.jpg
+*.png
+*.jpeg
+*.JPEG
+*.PNG
+*.JPG
+*.pt
+*.pth
+wandb/
+# Except this file
+!.gitignore
+!*.py
+!*.sh
+!*.md
+!data_split.json
