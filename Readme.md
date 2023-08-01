@@ -2,8 +2,10 @@
 
 ## Step0: Install  
 Follows the installation of  [GroundingDINO](https://github.com/IDEA-Research/GroundingDINO) and [Segment-anything](https://github.com/facebookresearch/segment-anything)
+***
 ## Step1: Conver data format
 Please follow the instruction in dir ```./data```
+***
 ## The baseline experiment:
 ### Step1: Extract the image embedding
 ```
@@ -34,6 +36,7 @@ Argument:
     prompt_type: which type of prompt you want to use
     wandb_log : save the score and visualization to wandb 
 ```
+---
 ## MaskGrounding DINO
 ```
 cd ./multi_modal
@@ -50,7 +53,14 @@ python Grounding_dino_infer.py --dataset SegPC-2021 --dataset_type valid
 ```
 python generate_mask.py --dataset SegPC-2021 --dataset_type valid --wandb_log
 ```
-
+---
+## YoloV8 + SAM
+### cd ```./box_prompt```, and follows the instruction.
+---
+## SPPnet : point prompts
+### unzip ```./sppnet.tar```
+### Follows the instruction
+***
 ## Model ZOO
 ### Pretrain-model
 1. SAM : pleased download from [Segment-anything](https://github.com/facebookresearch/segment-anything)
@@ -58,4 +68,4 @@ python generate_mask.py --dataset SegPC-2021 --dataset_type valid --wandb_log
 
 ### Fintuned-model
 1. MaskGroundingDINO : [weights](https://drive.google.com/file/d/1gMQe8RywGqzQfAQaQzYGUe--XRzAtaQT/view?usp=drive_link) , [Config](https://drive.google.com/file/d/1l5h4lxqNhSS1hwurFx6fL9x4R4iIKcag/view?usp=drive_link)
-
+2. Medical's YoloV8 : [weights]()
