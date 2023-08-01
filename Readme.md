@@ -58,7 +58,7 @@ python generate_mask.py --dataset SegPC-2021 --dataset_type valid --wandb_log
 ### cd ```./box_prompt```, and follows the instruction.
 ---
 ## SPPnet : point prompts
-### unzip sppnet.tar
+### unzip ```./sppnet.tar```
 ### Follows the instruction
 ***
 ## Model ZOO
@@ -68,4 +68,4 @@ python generate_mask.py --dataset SegPC-2021 --dataset_type valid --wandb_log
 
 ### Fintuned-model
 1. MaskGroundingDINO : [weights](https://drive.google.com/file/d/1gMQe8RywGqzQfAQaQzYGUe--XRzAtaQT/view?usp=drive_link) , [Config](https://drive.google.com/file/d/1l5h4lxqNhSS1hwurFx6fL9x4R4iIKcag/view?usp=drive_link)
-
+2. Medical's YoloV8 : [weights]()
