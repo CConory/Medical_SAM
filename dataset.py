@@ -26,7 +26,7 @@ def get_path(dataset_dir,file_name,suffix):
     mask_path = os.path.join(dataset_dir,"masks",file_name.replace(suffix,".npy"))
     return image_path,feature_path,mask_path
 
-def mask_2_boxes(mask,category_start_idx=0):
+def mask_2_boxes(mask,category_idx_map=None,max_obj_nums=30):
     mask = mask.astype(np.int32)
 
     
@@ -37,6 +37,10 @@ def mask_2_boxes(mask,category_start_idx=0):
     max_category_idx = np.max(mask[...,1])
     masks = []
     # masks_target = np.
+    if max_instance_nums>max_obj_nums: #isntance obj 太多了， 直接return 吧
+        result = np.zeros((0,6),dtype=np.float32)
+        masks = np.zeros((0,*(instances_mask.shape)),dtype=np.float32)
+        return result,masks,max_instance_nums 
     for category_idx in range(max_category_idx): #[0,1,2,3...n-1]
         semantic_mask = mask[...,1]== category_idx+1 # [1,2,3,....n]
         for instance_id in range(1,max_instance_nums+1):
@@ -46,7 +50,11 @@ def mask_2_boxes(mask,category_start_idx=0):
                 c1 = cv2.boundingRect((labels==i).astype(np.uint8)*255)
                 if c1[2]<=0 or c1[3]<=0:
                     continue
-                instance_bboxes.append([0,c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3],category_idx+category_start_idx]) # bs_id, x1y1x2y2, class_index 
+                if category_idx_map is None:
+                    instance_bboxes.append([0,c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3],category_idx])
+                else:
+                    _idx = category_idx_map[category_idx]
+                    instance_bboxes.append([0,c1[0], c1[1], c1[0]+c1[2], c1[1]+c1[3],_idx]) # bs_id, x1y1x2y2, class_index 
                 _mask = (labels==i).astype(np.float)
                 masks.append(_mask)
     if len(instance_bboxes):
@@ -55,7 +63,7 @@ def mask_2_boxes(mask,category_start_idx=0):
     else:
         result = np.zeros((0,6),dtype=np.float32)
         masks = np.zeros((0,*(instances_mask.shape)),dtype=np.float32)
-    return result,masks
+    return result,masks,max_instance_nums
 
 class Dataset(data.Dataset):
     def __init__(self, json_path,split,device):
@@ -466,18 +474,29 @@ class Medical_Detecton(All_boxes_Dataset):
         '''
             能让类别跟对应的instruction区分开，并且在后处理的时候能关联起来
         '''
-        dataset_names = ["HuBMAP","bowl_2018"]
-        cat_list = [
-            ["vessel","glomerulus","unsure"], #HuBMAP
-            ["Nuclei"] #bowl_2018
-        ]
+        # dataset_names = ["HuBMAP","bowl_2018"]
+        self.cat_list = [
+            "vessel","glomerulus","unsure", #HuBMAP
+            "Nuclei", #bowl_2018, MoNuSeg
+            "plasma cell", "plasma cell core", # SegPC-2021
+            ] 
+        self.dataset_category_idx = {
+            "HuBMAP":{0:0,1:1,2:2},
+            "bowl_2018":{0:3},
+            "MoNuSeg": {0:3},
+            "PanNuke": {0:3},
+            "SegPC-2021": {0:4,1:5}
+        }
 
-        self.cat_list = []
-        self.dataset_category_idx_start = {}
-        for dataset_id in range(len(dataset_names)):
-            self.dataset_category_idx_start[dataset_names[dataset_id]] =len(self.cat_list )
-            self.cat_list.extend(cat_list[dataset_id])
+        # self.cat_list = []
+        # self.dataset_category_idx_start = {}
+        # for dataset_id in range(len(dataset_names)):
+        #     self.dataset_category_idx_start[dataset_names[dataset_id]] =len(self.cat_list )
+        #     self.cat_list.extend(cat_list[dataset_id])
 
+        # Already_exit_cat_dataset2dataset = {"MoNuSeg":"bowl_2018"}
+        # for key,value in Already_exit_cat_dataset2dataset.items():
+        #     self.dataset_category_idx_start[key] = self.dataset_category_idx_start[value]
 
         # self.cat_list = ["vessel"]
         instruction = [
@@ -485,6 +504,8 @@ class Medical_Detecton(All_boxes_Dataset):
                 ["glomerulus tissue"], #for category:1
                 ["unsure tissue","unsure"], # for category:2
                 ['nuclei'], # for category:3, 注意小写
+                ['plasma cell'], # category:4
+                ['plasma cell core','plasma cell nuclei'], # category:5
                 ["normal_cell","cell","tissue"]
             ] # for others
         self.instruction = []
@@ -503,15 +524,30 @@ class Medical_Detecton(All_boxes_Dataset):
         dir_path = os.path.dirname(file_path)
         file_name = os.path.basename(file_path)
         suffix = os.path.splitext(file_name)[1]
-        category_start_idx = self.dataset_category_idx_start[dir_path.split("/")[-1]]
+        dataset_category_id_map = self.dataset_category_idx[dir_path.split("/")[-1]]
         image_path,feature_path,mask_path  = get_path(dir_path,file_name,suffix)
+
         image = Image.open(image_path).convert('RGB')
         w,h = image.size
         img_size = torch.tensor([h, w])
-
         mask = np.load(mask_path,allow_pickle=True)
         mask = mask.astype(np.int32)
-        target,masks = mask_2_boxes(mask,category_start_idx)
+        target,masks,max_instance_nums = mask_2_boxes(mask,dataset_category_id_map,max_obj_nums=40)
+        
+        if len(target)==0 and max_instance_nums!=0:
+            file_path= "../data/HuBMAP/HuBMAP_0a10b8716b30.tif"
+            dir_path = os.path.dirname(file_path)
+            file_name = os.path.basename(file_path)
+            suffix = os.path.splitext(file_name)[1]
+            dataset_category_id_map = self.dataset_category_idx[dir_path.split("/")[-1]]
+            image_path,feature_path,mask_path  = get_path(dir_path,file_name,suffix)
+            image = Image.open(image_path).convert('RGB')
+            w,h = image.size
+            img_size = torch.tensor([h, w])
+            mask = np.load(mask_path,allow_pickle=True)
+            mask = mask.astype(np.int32)
+            target,masks,max_instance_nums = mask_2_boxes(mask,dataset_category_id_map,max_obj_nums=40)
+
         target = torch.tensor(target)
 
         target[:, 1:-1:2].clamp_(min=0, max=w)
@@ -533,6 +569,8 @@ class Medical_Detecton(All_boxes_Dataset):
         # import pdb;pdb.set_trace()
         if self._transforms is not None:
             img,_ = self._transforms(image,None)
+        
+        
  
         # generation caption instruction and target_class for the corresponding positive
         instruction = self.instruction.copy() 
@@ -553,15 +591,15 @@ class Medical_Detecton(All_boxes_Dataset):
             one_hot_positive_map[one_hot_positive_map!=0] =1
             return img_size,img,target,image,captions,one_hot_positive_map,instruction,masks
         else:
-            return img_size,img,target,image,captions,masks
+            return img_size,img,target,image,captions,masks,image_path
 
 
     @staticmethod
     def collate_fn(batch):
-        img_size,images,instance_bboxes,ori_img,captions,masks = zip(*batch)
+        img_size,images,instance_bboxes,ori_img,captions,masks,image_path = zip(*batch)
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
-        return img_size,images,instance_bboxes,ori_img,list(captions),masks
+        return img_size,images,instance_bboxes,ori_img,list(captions),masks,image_path
 
     @staticmethod
     def collate_fn_for_train(batch):
@@ -734,6 +772,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
             post_process_information = {"idx":all_category_idx}
         captions, cat2tokenspan = build_captions_and_token_span(caption_list, True)
         
+        mask = None
         if self.is_train:
             positive_token = [cat2tokenspan[cls_name] for cls_name in categor_names]
             one_hot_positive_map = create_positive_map_from_span(self.tokenlizer(captions), positive_token)  #Used to train
@@ -749,25 +788,25 @@ class CocoDetection(torchvision.datasets.CocoDetection):
                 post_process_information["map"]= positive_map
             else:
                 post_process_information = {}
-            return img_size,img,target,ori_img,captions,one_hot_positive_map,post_process_information
+            return img_size,img,target,ori_img,captions,one_hot_positive_map,post_process_information,mask
         else:
-            return img_size,img,target,ori_img,captions
+            return img_size,img,target,ori_img,captions,mask
 
     
     @staticmethod
     def collate_fn(batch):
-        img_size,images,instance_bboxes,ori_img,captions = zip(*batch)
+        img_size,images,instance_bboxes,ori_img,captions,mask = zip(*batch)
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
-        return img_size,images,instance_bboxes,ori_img,list(captions)
+        return img_size,images,instance_bboxes,ori_img,list(captions),mask
 
     @staticmethod
     def collate_fn_for_train(batch):
-        img_size,images,instance_bboxes,ori_img,captions,one_hot_positive_map,post_process_information = zip(*batch)
+        img_size,images,instance_bboxes,ori_img,captions,one_hot_positive_map,post_process_information,mask = zip(*batch)
         one_hot_positive_map = torch.cat(one_hot_positive_map, dim=0)
         for i,l in enumerate(instance_bboxes):
             l[:, 0] = i 
-        return img_size,images,instance_bboxes,ori_img,list(captions),one_hot_positive_map,post_process_information
+        return img_size,images,instance_bboxes,ori_img,list(captions),one_hot_positive_map,post_process_information,mask
 
 
 def generate_captions_postive_map(instruction,is_train=False):

@@ -34,17 +34,21 @@ def load_model(model_config_path: str, model_checkpoint_path: str, device: str =
     # model = build_model(args)
     model = build_groundingdino(args)
     checkpoint = torch.load(model_checkpoint_path, map_location="cpu")
-    model.load_state_dict(clean_state_dict(checkpoint["model"]), strict=False)
+    try:
+        model.load_state_dict(clean_state_dict(checkpoint["model"]), strict=False)
+    except:
+        model.load_state_dict(clean_state_dict(checkpoint["state_dict"]), strict=False)
     model.eval()
     return model
 
 class PostProcessGrounding(nn.Module):
-    def __init__(self, num_select=300,category_list=None,instruction=None,cat_2_instruction=None, tokenlizer=None,encoder_input_size=1024) -> None:
+    def __init__(self, num_select=300,category_list=None,instruction=None,cat_2_instruction=None, tokenlizer=None,encoder_input_size=1024,cat_id_bias = 0) -> None:
         super().__init__()
         self.num_select = num_select
         self.encoder_input_size = encoder_input_size
         # captions 拼接成一个句子， cat2tokenspan : captions 在句子中的起始位置
         
+        self.cat_id_bias = cat_id_bias
         self.category_list = category_list
         self.cat_2_instruction = cat_2_instruction
         self.tokenlizer = tokenlizer
@@ -103,7 +107,7 @@ class PostProcessGrounding(nn.Module):
         topk_values, topk_indexes = torch.topk(prob_to_label.view(out_logits.shape[0], -1), self.num_select, dim=1) # 同一个bbox 可能对应不同的类别
         scores = topk_values
         topk_boxes = topk_indexes // prob_to_label.shape[2]
-        labels = topk_indexes % prob_to_label.shape[2]
+        labels = topk_indexes % prob_to_label.shape[2] + self.cat_id_bias 
 
         boxes = box_ops.box_cxcywh_to_xyxy(out_bbox) #坐标转换
         boxes = torch.gather( boxes, 1, topk_boxes.unsqueeze(-1).repeat(1, 1, 4))
@@ -146,7 +150,8 @@ if __name__ == '__main__':
 
     #Construct model
     config_file_path = "./config/GroundingDINO_SwinT_OGC.py"
-    checkpoint_path = "/userhome/cs2/kuangww/GroundingDINO/weights/groundingdino_swint_ogc.pth"
+    # checkpoint_path = "/userhome/cs2/kuangww/GroundingDINO/weights/groundingdino_swint_ogc.pth"
+    checkpoint_path = "/userhome/cs2/kuangww/medical_sam/multi_modal/weights/yek3xgo2/best.pth"
 
     cfg = SLConfig.fromfile(config_file_path)
     model = load_model(config_file_path, checkpoint_path)
@@ -167,9 +172,9 @@ if __name__ == '__main__':
 
     tokenlizer = get_tokenlizer.get_tokenlizer(cfg.text_encoder_type)
     if args.dataset == "coco":
-        dataset = CocoDetection(img_dir,anno_path,transform,is_train=True,tokenizer=tokenlizer)
-        # collate_fn = CocoDetection.collate_fn
-        collate_fn = CocoDetection.collate_fn_for_train
+        dataset = CocoDetection(img_dir,anno_path,transform,is_train=False,tokenizer=tokenlizer)
+        collate_fn = CocoDetection.collate_fn
+        # collate_fn = CocoDetection.collate_fn_for_train
     else:
         dataset_root_dir = "../data"
         dataset_name = args.dataset
@@ -180,7 +185,7 @@ if __name__ == '__main__':
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=4,
-        num_workers=0,
+        num_workers=4,
         shuffle=False,
         pin_memory=False,
         collate_fn = collate_fn,
@@ -193,8 +198,9 @@ if __name__ == '__main__':
         cat_list = [item['name'] for item in category_dict]
         caption_list = cat_list
     else:
-        cat_list = ['cell']
-        caption_list = ["hollow circle"]
+        cat_list = ["nuclei"]
+        caption_list = ["nuclei"]
+        cat_idx_bais = 3
     
     caption = " . ".join(caption_list) + ' .'
     category_dict = {id:cat_item for id,cat_item in enumerate(cat_list)}
@@ -217,14 +223,20 @@ if __name__ == '__main__':
     postprocessor = PostProcessGrounding(
         category_list=cat_list, tokenlizer=tokenlizer)
     
+    
 
     stats = []
     visulization_imgs = []
     vis_count = 0
     max_vis = 9
 
-
-    for (imgs_size, images,targets, ori_img,_) in tqdm(dataloader):
+    for (imgs_size, images,targets, ori_img,_,mask,image_path) in tqdm(dataloader):
+        if vis_count<max_vis:
+            print(image_path[0])
+            vis_count += 1 
+            continue
+        else :
+            break
         # 会按照batch最大的width 跟height 对每张图像 进行 padding
         bs = len(imgs_size)
         inputs = nested_tensor_from_tensor_list(images) #Got inputs.tensors & inputs.mask
@@ -233,16 +245,26 @@ if __name__ == '__main__':
             # batch_size >1 , 应该 把 inputs.mask 也一起传进去
             outputs = model(inputs, captions=[caption]*bs)
             imgs_size = torch.stack(imgs_size,dim=0).to(device)
-            predn = postprocessor(outputs, imgs_size) #results 映射回原图大小， 注意 targets['bbox]是在Transform后的尺寸。
+            predn,pred_masks = postprocessor(outputs, imgs_size) #results 映射回原图大小， 注意 targets['bbox]是在Transform后的尺寸。
         
+        # targets cxcywh -> original image xxyy         
+        img_h, img_w = imgs_size.unbind(1)
+        scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1).to('cpu')
+        targets = list(targets)
+        for bs_id in range(len(targets)):
+            targets[bs_id][:,1:-1] = box_ops.box_cxcywh_to_xyxy(targets[bs_id][:,1:-1]) * scale_fct[bs_id]
+            targets[bs_id][:,-1] -= cat_idx_bais
+            targets[bs_id] = targets[bs_id][targets[bs_id][:,-1]==0]
+
         # Logger_visualization
         if vis_count<max_vis and args.wandb_log:
-            vis_pred = predn[0][predn[0][:,-2]>0.1].cpu().numpy()
-            visulization_imgs.append(visualization_bboxes(ori_img[0], targets[0][:,1:].numpy(), vis_pred,category_dict))
+            vis_pred = predn[0][predn[0][:,-2]>0.3].cpu().numpy()
+            vis_img = visualization_bboxes(ori_img[0], targets[0][:,1:].numpy(), vis_pred,category_dict)
+            vis_img =  wandb.Image(vis_img)
+            visulization_imgs.append(vis_img)
             vis_count += 1
 
         stats.extend(processs_batch(predn,targets,mAP_threshold))
-
     stats = [np.concatenate(x, 0) for x in zip(*stats)] 
     if len(stats) and stats[0].any():
         result = ap_per_class(*stats)

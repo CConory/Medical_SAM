@@ -7,6 +7,7 @@ data/*.*
 # datasets/*.*
 weights/*
 multi_modal/weights
+multi_modal/results
 __pycache__/
 *.jpg
 *.png

@@ -30,22 +30,16 @@ import shutil
 from torch.cuda.amp import GradScaler
 scaler = GradScaler()
 
-def post_process_mask_for_GD(masks,origin_sizes,valid_mask = None,pred_flag=False):
+def post_process_mask_for_GD(masks,origin_sizes):
 
     return_masks = []
-    if pred_flag:
-        assert valid_mask is not None
-        masks = F.interpolate(masks, valid_mask.shape[-2:], mode="bilinear", align_corners=False)
-        masks = NestedTensor(masks,valid_mask).to_img_list()
     for img_id, mask in enumerate(masks):
         origin_size = tuple(origin_sizes[img_id].int().tolist())
         _masks = mask[None,...]
         _masks = F.interpolate(_masks, origin_size, mode="bilinear", align_corners=False)[0]
-        if not pred_flag:
-            _masks = _masks.sum(dim=0)
-            _masks[_masks!=0] = 1
-        else:
-            _masks = _masks>0 # sigmoid 前大与0， 等于sigmoid 后大于0.5
+
+        _masks = _masks.sum(dim=0)
+        _masks[_masks!=0] = 1
     
         return_masks.append(_masks)
     return return_masks
@@ -88,7 +82,7 @@ def build_dataset_and_dataloader(cfg,args,is_train=False):
     shuffle = True if is_train else False
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=2,
+        batch_size=1,
         num_workers=4,
         shuffle=shuffle,
         pin_memory=False,
@@ -97,11 +91,22 @@ def build_dataset_and_dataloader(cfg,args,is_train=False):
     )
     return dataset,dataloader
 
-def select_predn_mask(predn_per_img,pred_mask_per_img,conf_threshold=0.3):
+def select_predn_mask(predn_per_img,[pred_mask_per_img,conf_threshold=0.3,valid_mask=None,origin_size=None,return_bbox_mask=False):
 
     pred_mask_per_img = pred_mask_per_img[predn_per_img[:,-2]>conf_threshold] # 与可视化相同的阈值， 只有 bbox 的conf>0.3 才会发上 masks
-    pred_mask_per_img = pred_mask_per_img.sum(dim=0) #instance_mask -> foreground semantic mask
+    pred_mask_per_img = pred_mask_per_img[:50]
+    if len(pred_mask_per_img) == 0:
+        pred_mask_per_img = torch.zeros((1,*pred_mask_per_img.shape[-2:])).to(pred_mask_per_img)
+    pred_mask_per_img = F.interpolate(pred_mask_per_img[None,...], valid_mask.shape[-2:], mode="bilinear", align_corners=False)
+    pred_mask_per_img = NestedTensor(pred_mask_per_img,valid_mask[None,...]).to_img_list()[0]
+    origin_size = tuple(origin_size.int().tolist())
+    pred_mask_per_img = pred_mask_per_img[None,...]
+    pred_mask_per_img = F.interpolate(pred_mask_per_img, origin_size, mode="bilinear", align_corners=False)[0]
+    pred_mask_per_img = pred_mask_per_img>0
+    pred_mask_per_img = pred_mask_per_img.sum(dim=0)
     pred_mask_per_img [pred_mask_per_img!=0] =1 #[h,w]
+
+
 
     if True: #Version3 mask decoder
         h,w = pred_mask_per_img.shape[-2:]
@@ -114,6 +119,8 @@ def select_predn_mask(predn_per_img,pred_mask_per_img,conf_threshold=0.3):
             bbox_mask[y1:y2,x1:x2] = True
         pred_mask_per_img *= bbox_mask
 
+    if return_bbox_mask:
+        return pred_mask_per_img,bbox_mask,_predn_per_img
     return pred_mask_per_img
 
 
@@ -142,6 +149,7 @@ if __name__ == '__main__':
         os.makedirs(args.output_dir)
     
     config_file_path = "./config/GroundingDINO_SwinT_OGC.py"
+    # checkpoint_path = "/userhome/cs2/kuangww/medical_sam/multi_modal/weights/5isw33ws/best.pth"
     checkpoint_path = "/userhome/cs2/kuangww/GroundingDINO/weights/groundingdino_swint_ogc.pth"
     cfg = SLConfig.fromfile(config_file_path)
     shutil.copy(config_file_path,os.path.join(args.output_dir,os.path.basename(config_file_path)))
@@ -274,11 +282,10 @@ if __name__ == '__main__':
                 target_masks = post_process_mask_for_GD(masks,imgs_size)
 
                 predn,masks = postprocessor(outputs, imgs_size)
-                pred_masks = post_process_mask_for_GD(masks,imgs_size,valid_mask = inputs.mask,pred_flag=True)
-                if pred_masks[0].shape[0]==1:
-                    pred_masks =pred_masks[0].squeeze(0)
+                if masks[0].shape[0]==1:
+                    masks =masks[0].squeeze(0)
                 else:
-                    pred_masks = select_predn_mask(predn[0],pred_masks[0],0.1)
+                    pred_masks = select_predn_mask(predn[0],masks[0],0.1,inputs.mask[0],imgs_size[0])
                 vis_img = visualization_masks(vis_img,target_masks[0].cpu().numpy(),pred_mask=pred_masks.cpu().numpy(),img_style="plt")
 
                 vis_img =  wandb.Image(vis_img)
@@ -307,6 +314,9 @@ if __name__ == '__main__':
         dice = []
         model.eval()
         progress_bar = tqdm(enumerate(valid_loader), total=len(valid_loader))
+
+        vis_count = 0
+        visulization_imgs = []
         for i, (imgs_size, images,targets, ori_img, captions,masks) in progress_bar:
             with torch.no_grad():
                 targets = [tmp.to(device) for tmp in targets]
@@ -315,23 +325,9 @@ if __name__ == '__main__':
                 outputs = model(inputs, captions=captions)
                 imgs_size = torch.stack(imgs_size,dim=0).to(device)
 
-                
+
                 predn,pred_masks = postprocessor(outputs, imgs_size)
-                if pred_masks is not None:
-                    pred_masks = post_process_mask_for_GD(pred_masks,imgs_size,valid_mask = inputs.mask,pred_flag=True)
-                    target_masks = post_process_mask_for_GD(masks,imgs_size)
-                    for per_img_id in range(len(pred_masks)):
-                        if pred_masks[per_img_id].shape[0] == 1:
-                            pred_mask_per_img = pred_masks[per_img_id].squeeze(0)
-                        else:
-                            pred_mask_per_img = select_predn_mask(predn[per_img_id],pred_masks[per_img_id],0.3)
-                        target_mask_per_img = target_masks[per_img_id] 
-                        _mIoU,_dice = mean_iou_and_dice(target_mask_per_img[None,None,...].cpu().numpy(),pred_mask_per_img[None,None,...].cpu().numpy())
-                        mIoU.append(_mIoU)
-                        dice.append(_dice)
-                else:
-                    mIoU.append(0)
-                    dice.append(0)
+
 
                 # targets cxcywh -> original image xxyy         
                 img_h, img_w = imgs_size.unbind(1)
@@ -339,25 +335,54 @@ if __name__ == '__main__':
                 for bs_id in range(len(targets)):
                     targets[bs_id][:,1:-1] = box_ops.box_cxcywh_to_xyxy(targets[bs_id][:,1:-1]) * scale_fct[bs_id]
                 val_stats.extend(processs_batch(predn,targets,args.mAP_threshold))
-            
+
+                if pred_masks is not None:
+                    target_masks = post_process_mask_for_GD(masks,imgs_size)
+                    for per_img_id in range(len(pred_masks)):
+                        if pred_masks[per_img_id].shape[0] == 1:
+                            pred_mask_per_img = pred_masks[per_img_id].squeeze(0)
+                        else:
+                            pred_mask_per_img = select_predn_mask(predn[per_img_id],pred_masks[per_img_id],0.3,valid_mask = inputs.mask[per_img_id],origin_size=imgs_size[per_img_id])        
+                        target_mask_per_img = target_masks[per_img_id] 
+
+                        if vis_count<5 and per_img_id ==0 :
+                            vis_pred = predn[per_img_id][predn[per_img_id][:,-2]>0.3].cpu().numpy()
+                            vis_img = visualization_bboxes(ori_img[per_img_id], targets[per_img_id][:,1:].cpu().numpy(), predn =vis_pred,category_dict=category_dict)
+                            vis_img = visualization_masks(vis_img,target_mask_per_img.cpu().numpy(),pred_mask=pred_mask_per_img.cpu().numpy(),img_style="plt")
+                            vis_img =  wandb.Image(vis_img)
+                            visulization_imgs.append(vis_img)
+                            vis_count += 1
+
+                        _mIoU,_dice = mean_iou_and_dice(target_mask_per_img[None,None,...].cpu().numpy(),pred_mask_per_img[None,None,...].cpu().numpy())
+                        mIoU.append(_mIoU)
+                        dice.append(_dice)
+                else:
+                    mIoU.append(0)
+                    dice.append(0)
+
+                
+
             mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)
             s = ('%10s' + '%10s') % ('%g/%g' % (epoch + 1, cfg.max_epoch), mem)
             progress_bar.set_description(s)
         
         # Visulization the valid prediction result
-        visulization_imgs = []
-        for bs_id in range(len(images)):
-            vis_pred = predn[bs_id][predn[bs_id][:,-2]>0.3].cpu().numpy()
-            vis_img = visualization_bboxes(ori_img[bs_id], targets[bs_id][:,1:].cpu().numpy(), predn =vis_pred,category_dict=category_dict)
-            if pred_masks is not None:
-                if pred_masks[bs_id].shape[0] == 1:
-                    pred_mask_per_img = pred_masks[bs_id].squeeze(0)
-                else:
-                    pred_mask_per_img = select_predn_mask(predn[bs_id],pred_masks[bs_id],0.3)
-                target_mask_per_img = target_masks[bs_id] 
-                vis_img = visualization_masks(vis_img,target_mask_per_img.cpu().numpy(),pred_mask=pred_mask_per_img.cpu().numpy(),img_style="plt")
-            vis_img =  wandb.Image(vis_img)
-            visulization_imgs.append(vis_img)
+        
+        # for bs_id in range(len(images)):
+        #     vis_pred = predn[bs_id][predn[bs_id][:,-2]>0.3].cpu().numpy()
+        #     vis_img = visualization_bboxes(ori_img[bs_id], targets[bs_id][:,1:].cpu().numpy(), predn =vis_pred,category_dict=category_dict)
+        #     if pred_masks is not None:
+        #         if pred_masks[bs_id].shape[0] == 1:
+        #             pred_mask_per_img = pred_masks[bs_id].squeeze(0)
+        #         else:
+        #             pred_mask_per_img = select_predn_mask(predn[bs_id],pred_masks[bs_id],0.3)
+        #         target_mask_per_img = target_masks[bs_id] 
+        #         vis_img = visualization_masks(vis_img,target_mask_per_img.cpu().numpy(),pred_mask=pred_mask_per_img.cpu().numpy(),img_style="plt")
+        #     vis_img =  wandb.Image(vis_img)
+        #     if len(images) == 1:
+        #         visulization_imgs = vis_img
+        #     else:
+        #         visulization_imgs.append(vis_img)
 
         mIoU = round(sum(mIoU)/len(mIoU),3)
         dice = round(sum(dice)/len(dice),3)

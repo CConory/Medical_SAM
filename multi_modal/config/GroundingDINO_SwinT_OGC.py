@@ -45,7 +45,7 @@ sub_sentence_present = True
 # For Finetune
 is_train = True
 language_backbone_freeze = True
-image_backbone_freeze = False
+image_backbone_freeze = True
 transformer_freeze = False
 box_cls_embed_freeze = False
 
@@ -90,5 +90,5 @@ warmup_step_patience = 5 # for autostep
 lr_steps = [0.67,0.89]
 
 # others:
-gradient_calculate_step = 16
+gradient_calculate_step = 32
 

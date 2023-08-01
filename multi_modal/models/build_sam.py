@@ -52,13 +52,13 @@ def build_sam_vit_b(checkpoint=None,args=None):
 
 
 def build_sam_vit_t(checkpoint=None,args=None):
-
-    training_args = {
-        "language_backbone_freeze":args.language_backbone_freeze,
-        "image_backbone_freeze": args.image_backbone_freeze,
-        "transformer_freeze":args.transformer_freeze,
-        "box_cls_embed_freeze":args.box_cls_embed_freeze
-        }
+    if args is not None:
+        training_args = {
+            "language_backbone_freeze":args.language_backbone_freeze,
+            "image_backbone_freeze": args.image_backbone_freeze,
+            "transformer_freeze":args.transformer_freeze,
+            "box_cls_embed_freeze":args.box_cls_embed_freeze
+            }
 
     prompt_embed_dim = 256
     image_size = 1024
